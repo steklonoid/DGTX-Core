@@ -34,18 +34,10 @@ class MainWindow(QMainWindow, UiMainWindow):
 
     def __init__(self):
 
-        def createdb(fname):
-            self.db.setDatabaseName(fname)
-            self.db.open()
-            q1 = QSqlQuery(self.db)
-            q1.prepare("CREATE TABLE users (login TEXT UNIQUE PRIMARY KEY, psw TEXT NOT NULL, apikey TEXT NOT NULL)")
-            q1.exec_()
-
         def opendb():
             fname = "./conf.db"
             if not os.path.exists(fname):
-                createdb(fname)
-
+                return False
             self.db.setDatabaseName(fname)
             self.db.open()
             if self.db.isOpen():
@@ -56,18 +48,18 @@ class MainWindow(QMainWindow, UiMainWindow):
         super().__init__()
         logging.basicConfig(filename='info.log', level=logging.INFO, format='%(asctime)s %(message)s')
         #  подключаем базу SQLite
-        # self.db = QSqlDatabase.addDatabase("QSQLITE", 'maindb')
-        # if not opendb():
-        #     msg_box = QMessageBox()
-        #     msg_box.setText("Ошибка открытия файла базы данных")
-        #     msg_box.exec()
-        #     sys.exit()
+        self.db = QSqlDatabase.addDatabase("QSQLITE", 'maindb')
+        if not opendb():
+            msg_box = QMessageBox()
+            msg_box.setText("Ошибка открытия файла базы данных")
+            msg_box.exec()
+            sys.exit()
 
         # создание визуальной формы
         self.setupui(self)
         self.show()
 
-        self.wssserver = WSSServer(self)
+        self.wssserver = WSSServer(self, self.db)
         self.wssserver.daemon = True
         self.wssserver.start()
 
@@ -103,11 +95,8 @@ class MainWindow(QMainWindow, UiMainWindow):
         # self.analizator.start()
 
     def closeEvent(self, *args, **kwargs):
-        pass
-        # self.dxthread.flClosing = True
-        # self.dxthread.wsapp.close()
-        # while self.dxthread.is_alive():
-        #     pass
+        if self.db.isOpen():
+            self.db.close()
 
     def midvol(self):
         # self.lock.acquire()

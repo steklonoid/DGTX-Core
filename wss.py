@@ -1,19 +1,22 @@
 from threading import Thread
+from PyQt5.QtWidgets import QMessageBox
+from PyQt5.QtSql import QSqlDatabase, QSqlQuery
 import websocket
 import json
 import time
 import logging
+import os
+import sys
 
 import websockets
 import asyncio
 
 
 class WSSServer(Thread):
-    def __init__(self, pc):
+    def __init__(self, pc, db):
         super(WSSServer, self).__init__()
         self.pc = pc
-
-
+        self.db = db
 
     def run(self) -> None:
 
@@ -23,12 +26,15 @@ class WSSServer(Thread):
         rockets = {}
         races = {}
 
-
-        async def add_rocket(websocket, data):
+        async def add_rocket(websocket, params):
             if not rockets.get(websocket):
-                rockets[websocket] = {'ts':time.time(), 'version':data['version']}
+                id = len(rockets) + 1
+                rockets[websocket] = {'id':id, 'ts':time.time(), 'version':params['version'], 'status':'wait'}
+                data = {'registration':'ok', 'id':id}
+                data = json.dumps(data)
+                await asyncio.wait([websocket.send(data)])
 
-        async def add_manager(websocket):
+        async def add_manager(websocket, params):
             if not managers.get(websocket):
                 managers[websocket] = {'ts': time.time()}
 
@@ -48,22 +54,29 @@ class WSSServer(Thread):
             try:
                 async for message in websocket:
                     data = json.loads(message)
-                    if data.get('registration'):
-                        if data['registration'] == 'rocket':
-                            await add_rocket(websocket, data)
-                        elif data['registration'] == 'manager':
-                            await add_manager(websocket)
+                    id = data.get('id')
+                    #   'registration', 'manager_command', 'rocket_responce'
+                    message_type = data.get('message_type')
+                    params = data.get('params')
+                    if message_type == 'registration':
+                        #   params = {'typereg':'rocket'|'manager'}
+                        typereg = params.get('typereg')
+                        if typereg == 'rocket':
+                            await add_rocket(websocket, params)
+                        elif typereg == 'manager':
+                            await add_manager(websocket, params)
                         else:
                             pass
-                    elif data.get('manager_command'):
+                    elif message_type == 'manager_command':
                         if managers.get(websocket):
-                            command = data['manager_command']
+                            #   params = {'command':command}
+                            command = params.get('command')
                             if command == 'getlistrockets':
                                 await sendlist(websocket, rockets)
-                            elif command == 'getlistpilots':
-                                await sendlist(websocket, pilots)
                             elif command == 'getlistmanagers':
                                 await sendlist(websocket, managers)
+                            elif command == 'getlistpilots':
+                                await sendlist(websocket, pilots)
                             elif command == 'getlistraces':
                                 await sendlist(websocket, races)
                             elif command == 'getpilotinfo':
@@ -78,12 +91,18 @@ class WSSServer(Thread):
                                 pass
                         else:
                             pass
-                    elif data.get('race_responce'):
+                    elif message_type == 'rocket_responce':
                         pass
                     else:
                         pass
             finally:
                 await unregister(websocket)
+
+        q1 = QSqlQuery(self.db)
+        q1.prepare('SELECT login, name, psw, apikey FROM pilots')
+        q1.exec_()
+        while q1.next():
+            pilots[q1.value(0)] = {'login':q1.value(0), 'name':q1.value(1), 'psw':q1.value(2), 'apikey':q1.value(3), 'status':'wait'}
 
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
