@@ -44,8 +44,8 @@ class WSSServer(Thread):
         async def unregister(websocket):
             connects.pop(websocket, None)
 
-        async def sendlist(websocket, d):
-            data = [value for (key, value) in d.items()]
+        async def sendlist(websocket, d, strd):
+            data = {'message_type':strd, 'data':[value for (key, value) in d.items()]}
             data = json.dumps(data)
             await asyncio.wait([websocket.send(data)])
 
@@ -71,14 +71,14 @@ class WSSServer(Thread):
                         if managers.get(websocket):
                             #   params = {'command':command}
                             command = params.get('command')
-                            if command == 'getlistrockets':
-                                await sendlist(websocket, rockets)
-                            elif command == 'getlistmanagers':
-                                await sendlist(websocket, managers)
-                            elif command == 'getlistpilots':
-                                await sendlist(websocket, pilots)
-                            elif command == 'getlistraces':
-                                await sendlist(websocket, races)
+                            if command == 'getrocketslist':
+                                await sendlist(websocket, rockets, command)
+                            elif command == 'getmanagerslist':
+                                await sendlist(websocket, managers, command)
+                            elif command == 'getpilotslist':
+                                await sendlist(websocket, pilots, command)
+                            elif command == 'getraceslist':
+                                await sendlist(websocket, races, command)
                             elif command == 'getpilotinfo':
                                 pass
                             elif command == 'getraceinfo':
