@@ -24,9 +24,8 @@ class WSSServer(Thread):
 
         async def add_rocket(websocket, params):
             if not rockets.get(websocket):
-                id = len(rockets) + 1
                 rockets[websocket] = {'id':id, 'ts':time.time(), 'version':params['version'], 'status':'wait'}
-                data = {'registration':'ok', 'id':id}
+                data = {'registration':'ok'}
                 data = json.dumps(data)
                 await asyncio.wait([websocket.send(data)])
 
