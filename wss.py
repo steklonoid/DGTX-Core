@@ -1,13 +1,9 @@
 from threading import Thread
-from PyQt5.QtWidgets import QMessageBox
-from PyQt5.QtSql import QSqlDatabase, QSqlQuery
+from PyQt5.QtSql import QSqlQuery
 import websocket
 import json
 import time
 import logging
-import os
-import sys
-
 import websockets
 import asyncio
 
@@ -43,6 +39,9 @@ class WSSServer(Thread):
 
         async def unregister(websocket):
             connects.pop(websocket, None)
+            managers.pop(websocket, None)
+            rockets.pop(websocket, None)
+            races.pop(websocket, None)
 
         async def sendlist(websocket, d, strd):
             data = {'message_type':strd, 'data':[value for (key, value) in d.items()]}
@@ -55,11 +54,9 @@ class WSSServer(Thread):
                 async for message in websocket:
                     data = json.loads(message)
                     id = data.get('id')
-                    #   'registration', 'manager_command', 'rocket_responce'
-                    message_type = data.get('message_type')
-                    params = data.get('params')
+                    message_type = data.get('message_type') #   'registration', 'manager_command', 'rocket_responce'
+                    params = data.get('params') #   params = {'typereg':'rocket'|'manager'}
                     if message_type == 'registration':
-                        #   params = {'typereg':'rocket'|'manager'}
                         typereg = params.get('typereg')
                         if typereg == 'rocket':
                             await add_rocket(websocket, params)

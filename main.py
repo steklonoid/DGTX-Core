@@ -1,17 +1,12 @@
-import random
 import sys
 import os
-import time
-import queue
 import logging
 
 from PyQt5.QtWidgets import QMainWindow, QApplication, QMessageBox
-from PyQt5.QtGui import QIcon
-from PyQt5.QtCore import QSettings, pyqtSlot, Qt
-from PyQt5.QtSql import QSqlDatabase, QSqlQuery
+from PyQt5.QtCore import QSettings
+from PyQt5.QtSql import QSqlDatabase
 from mainWindow import UiMainWindow
 from wss import WSThread, Worker, Senderq, WSSServer
-import math
 import numpy as np
 from threading import Lock
 
