@@ -7,6 +7,7 @@ import logging
 import websockets
 import asyncio
 
+PSW = 'asd'
 
 class WSSServer(Thread):
     def __init__(self, pc, db):
@@ -16,7 +17,7 @@ class WSSServer(Thread):
 
     def run(self) -> None:
 
-        connects = {}
+        connections = {}
         managers = {}
         pilots = {}
         rockets = {}
@@ -29,18 +30,27 @@ class WSSServer(Thread):
                 data = json.dumps(data)
                 await asyncio.wait([websocket.send(data)])
 
-        async def add_manager(websocket, params):
+        async def add_manager(websocket, id, data):
             if not managers.get(websocket):
-                managers[websocket] = {'ts': time.time()}
+                psw = data.get('psw')
+                if psw == PSW:
+                    managers[websocket] = {'ts': time.time(), 'user':data['user']}
+                    connections[websocket]['type'] = 'manager'
+                    str = {'id':id, 'message_type':'registration', 'data':{'status':'ok'}}
+                else:
+                    str = {'id': id, 'message_type': 'registration', 'data': {'status': 'error', 'message': 'Неверный пароль'}}
+            else:
+                str = {'id': id, 'message_type': 'registration', 'data': {'status': 'error', 'message':'Есть уже такой менеджер'}}
+            str = json.dumps(str)
+            await asyncio.wait([websocket.send(str)])
 
         async def register(websocket):
-            connects[websocket] = {'ts':time.time()}
+            connections[websocket] = {'id':int(time.time()*10000000), 'ts':time.time(), 'type':'wait'}
 
         async def unregister(websocket):
-            connects.pop(websocket, None)
+            connections.pop(websocket, None)
             managers.pop(websocket, None)
             rockets.pop(websocket, None)
-            races.pop(websocket, None)
 
         async def sendlist(websocket, d, strd):
             data = {'message_type':strd, 'data':[value for (key, value) in d.items()]}
@@ -51,22 +61,22 @@ class WSSServer(Thread):
             await register(websocket)
             try:
                 async for message in websocket:
-                    data = json.loads(message)
-                    id = data.get('id')
-                    message_type = data.get('message_type') #   'registration', 'manager_command', 'rocket_responce'
-                    params = data.get('params') #   params = {'typereg':'rocket'|'manager'}
+                    mes = json.loads(message)
+                    id = mes.get('id')
+                    message_type = mes.get('message_type')
+                    data = mes.get('data')
                     if message_type == 'registration':
-                        typereg = params.get('typereg')
+                        typereg = data.get('typereg')
                         if typereg == 'rocket':
-                            await add_rocket(websocket, params)
+                            await add_rocket(websocket, data)
                         elif typereg == 'manager':
-                            await add_manager(websocket, params)
+                            await add_manager(websocket, id, data)
                         else:
                             pass
                     elif message_type == 'manager_command':
                         if managers.get(websocket):
                             #   params = {'command':command}
-                            command = params.get('command')
+                            command = data.get('command')
                             if command == 'getrocketslist':
                                 await sendlist(websocket, rockets, command)
                             elif command == 'getmanagerslist':
