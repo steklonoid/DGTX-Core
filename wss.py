@@ -1,25 +1,28 @@
 from threading import Thread
-from PyQt5.QtSql import QSqlQuery
+import bcrypt   #pip install bcrypt
 import websocket
 import json
 import time
 import logging
 import websockets
 import asyncio
+import sys
+import hashlib
+from Crypto.Cipher import AES # pip install pycryptodome
 
 PSW = 'asd'
 
 class WSSServer(Thread):
-    def __init__(self, pc, db):
+    def __init__(self, pc, pilots):
         super(WSSServer, self).__init__()
         self.pc = pc
-        self.db = db
+        self.pilots = pilots
 
     def run(self) -> None:
 
         connections = {}
         managers = {}
-        pilots = {}
+        pilots = self.pilots
         rockets = {}
         races = {}
 
@@ -29,10 +32,14 @@ class WSSServer(Thread):
 
         async def add_rocket(websocket, id, data):
             if not rockets.get(websocket):
-                rockets[websocket] = {'ts':time.time(), 'version':data['version'], 'status':0}
-                connections[websocket]['type'] = 'rocket'
-                str = {'id':id, 'message_type':'registration', 'data':{'status':'ok'}}
-                await rockets_changed()
+                psw = data.get('psw')
+                if bcrypt.checkpw(psw.encode('utf-8'), self.pc.hashpsw['rocket'].encode('utf-8')):
+                    rockets[websocket] = {'ts':time.time(), 'version':data['version'], 'status':0}
+                    connections[websocket]['type'] = 'rocket'
+                    str = {'id':id, 'message_type':'registration', 'data':{'status':'ok'}}
+                    await rockets_changed()
+                else:
+                    str = {'id': id, 'message_type': 'registration', 'data': {'status': 'error', 'message': 'Неверный пароль'}}
             else:
                 str = {'id': id, 'message_type': 'registration', 'data': {'status': 'error', 'message':'Есть уже такая ракета'}}
             str = json.dumps(str)
@@ -45,7 +52,8 @@ class WSSServer(Thread):
         async def add_manager(websocket, id, data):
             if not managers.get(websocket):
                 psw = data.get('psw')
-                if psw == PSW:
+                if bcrypt.checkpw(psw.encode('utf-8'), self.pc.hashpsw['manager'].encode('utf-8')):
+                    self.pc.hashpsw['psw'] = psw
                     managers[websocket] = {'ts': time.time(), 'user':data['user']}
                     connections[websocket]['type'] = 'manager'
                     str = {'id':id, 'message_type':'registration', 'data':{'status':'ok'}}
@@ -56,6 +64,19 @@ class WSSServer(Thread):
                 str = {'id': id, 'message_type': 'registration', 'data': {'status': 'error', 'message':'Есть уже такой менеджер'}}
             str = json.dumps(str)
             await asyncio.wait([websocket.send(str)])
+
+        async def races_changed():
+            for websocket in managers.keys():
+                await mc_getrockets(websocket, 0)
+                await mc_getpilots(websocket, 0)
+                await mc_getraces(websocket, 0)
+
+        async def add_race(rocket, pilot):
+            if not races.get(rocket):
+                races[rocket] = {'ts':time.time(), 'pilot':pilot, 'status':0}
+                rockets[rocket]['status'] = 1
+                pilots[pilot]['status'] = 1
+                await races_changed()
 
         async def register(websocket):
             connections[websocket] = {'id':int(time.time()*10000000), 'ts':time.time(), 'type':'wait'}
@@ -68,6 +89,13 @@ class WSSServer(Thread):
             if rockets.get(websocket):
                 rockets.pop(websocket, None)
                 await rockets_changed()
+            if races.get(websocket):
+                pilot = races[websocket]['pilot']
+                pilots[pilot]['status'] = 0
+                races.pop(websocket, None)
+                await races_changed()
+
+#   ====================================================================================================================
 
         async def mc_getrockets(websocket, id):
             rockets_data = {connections[k]['id']:{'version':v['version'], 'status':v['status']} for k,v in rockets.items()}
@@ -87,13 +115,29 @@ class WSSServer(Thread):
             data = json.dumps(data)
             await asyncio.wait([websocket.send(data)])
 
-        async def mc_races(websocket, id):
-            pass
+        async def mc_getraces(websocket, id):
+            races_data = {connections[k]['id']: {'pilot': v['pilot'], 'status': v['status']} for k, v in races.items()}
+            data = {'id': id, 'message_type': 'cm', 'data': {'command': 'getraces', 'races': races_data}}
+            data = json.dumps(data)
+            await asyncio.wait([websocket.send(data)])
 
         async def cb_authpilot(pilot, rocket):
             websocket_rocket = [k for k,v in connections.items() if v['id'] == rocket][0]
             ak = pilots[pilot]['apikey']
-            data = {'id': 11, 'message_type': 'cb', 'data': {'command': 'authpilot', 'pilot': pilot, 'ak':ak, 'rocket':rocket}}
+
+            IV_SIZE = 16  # 128 bit, fixed for the AES algorithm
+            KEY_SIZE = 32  # 256 bit meaning AES-256, can also be 128 or 192 bits
+            SALT_SIZE = 16  # This size is arbitrary
+            en_ak_int = int(ak)
+            en_ak_byte = en_ak_int.to_bytes((en_ak_int.bit_length() + 7) // 8, sys.byteorder)
+            salt = en_ak_byte[0:SALT_SIZE]
+            derived = hashlib.pbkdf2_hmac('sha256', self.pc.hashpsw['psw'].encode('utf-8'), salt, 100000,
+                                          dklen=IV_SIZE + KEY_SIZE)
+            iv = derived[0:IV_SIZE]
+            key = derived[IV_SIZE:]
+            ak = AES.new(key, AES.MODE_CFB, iv).decrypt(en_ak_byte[SALT_SIZE:]).decode('utf-8')
+            print(ak)
+            data = {'id': 11, 'message_type': 'cb', 'data': {'command': 'authpilot', 'pilot': pilot, 'ak':ak}}
             data = json.dumps(data)
             await asyncio.wait([websocket_rocket.send(data)])
 
@@ -124,7 +168,7 @@ class WSSServer(Thread):
                             elif command == 'getpilots':
                                 await mc_getpilots(websocket, id)
                             elif command == 'getraces':
-                                await mc_races(websocket, id)
+                                await mc_getraces(websocket, id)
                             elif command == 'authpilot':
                                 pilot = data.get('pilot')
                                 rocket = int(data.get('rocket'))
@@ -141,18 +185,18 @@ class WSSServer(Thread):
                                 pass
                         else:
                             pass
-                    elif message_type == 'rocket_responce':
-                        pass
+                    elif message_type == 'bc':
+                        if rockets.get(websocket):
+                            command = data.get('command')
+                            if command == 'authpilot':
+                                status = data.get('status')
+                                if status == 'ok':
+                                    pilot = data.get('pilot')
+                                    await add_race(websocket, pilot)
                     else:
                         pass
             finally:
                 await unregister(websocket)
-
-        q1 = QSqlQuery(self.db)
-        q1.prepare('SELECT login, name, psw, apikey FROM pilots')
-        q1.exec_()
-        while q1.next():
-            pilots[q1.value(0)] = {'name':q1.value(1), 'psw':q1.value(2), 'apikey':q1.value(3), 'status':0}
 
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
