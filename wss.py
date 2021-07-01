@@ -1,25 +1,28 @@
 from threading import Thread
-from PyQt5.QtSql import QSqlQuery
+import bcrypt   #pip install bcrypt
 import websocket
 import json
 import time
 import logging
 import websockets
 import asyncio
+import sys
+import hashlib
+from Crypto.Cipher import AES # pip install pycryptodome
 
 PSW = 'asd'
 
 class WSSServer(Thread):
-    def __init__(self, pc, db):
+    def __init__(self, pc, pilots):
         super(WSSServer, self).__init__()
         self.pc = pc
-        self.db = db
+        self.pilots = pilots
 
     def run(self) -> None:
 
         connections = {}
         managers = {}
-        pilots = {}
+        pilots = self.pilots
         rockets = {}
         races = {}
 
@@ -45,7 +48,8 @@ class WSSServer(Thread):
         async def add_manager(websocket, id, data):
             if not managers.get(websocket):
                 psw = data.get('psw')
-                if psw == PSW:
+                if bcrypt.checkpw(psw.encode('utf-8'), self.pc.hashpsw['manager'].encode('utf-8')):
+                    self.pc.hashpsw['psw'] = psw
                     managers[websocket] = {'ts': time.time(), 'user':data['user']}
                     connections[websocket]['type'] = 'manager'
                     str = {'id':id, 'message_type':'registration', 'data':{'status':'ok'}}
@@ -93,6 +97,19 @@ class WSSServer(Thread):
         async def cb_authpilot(pilot, rocket):
             websocket_rocket = [k for k,v in connections.items() if v['id'] == rocket][0]
             ak = pilots[pilot]['apikey']
+
+            IV_SIZE = 16  # 128 bit, fixed for the AES algorithm
+            KEY_SIZE = 32  # 256 bit meaning AES-256, can also be 128 or 192 bits
+            SALT_SIZE = 16  # This size is arbitrary
+            en_ak_int = int(ak)
+            en_ak_byte = en_ak_int.to_bytes((en_ak_int.bit_length() + 7) // 8, sys.byteorder)
+            salt = en_ak_byte[0:SALT_SIZE]
+            derived = hashlib.pbkdf2_hmac('sha256', self.pc.hashpsw['psw'].encode('utf-8'), salt, 100000,
+                                          dklen=IV_SIZE + KEY_SIZE)
+            iv = derived[0:IV_SIZE]
+            key = derived[IV_SIZE:]
+            ak = AES.new(key, AES.MODE_CFB, iv).decrypt(en_ak_byte[SALT_SIZE:]).decode('utf-8')
+            print(ak)
             data = {'id': 11, 'message_type': 'cb', 'data': {'command': 'authpilot', 'pilot': pilot, 'ak':ak, 'rocket':rocket}}
             data = json.dumps(data)
             await asyncio.wait([websocket_rocket.send(data)])
@@ -147,12 +164,6 @@ class WSSServer(Thread):
                         pass
             finally:
                 await unregister(websocket)
-
-        q1 = QSqlQuery(self.db)
-        q1.prepare('SELECT login, name, psw, apikey FROM pilots')
-        q1.exec_()
-        while q1.next():
-            pilots[q1.value(0)] = {'name':q1.value(1), 'psw':q1.value(2), 'apikey':q1.value(3), 'status':0}
 
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)

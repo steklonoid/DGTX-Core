@@ -4,7 +4,7 @@ import logging
 
 from PyQt5.QtWidgets import QMainWindow, QApplication, QMessageBox
 from PyQt5.QtCore import QSettings
-from PyQt5.QtSql import QSqlDatabase
+from PyQt5.QtSql import QSqlDatabase, QSqlQuery
 from mainWindow import UiMainWindow
 from wss import WSThread, Worker, Senderq, WSSServer
 import numpy as np
@@ -18,15 +18,13 @@ class MainWindow(QMainWindow, UiMainWindow):
     settings = QSettings("./config.ini", QSettings.IniFormat)   # файл настроек
     lock = Lock()
 
-    symbol = 'BTCUSD-PERP'
-
-    spotPx = 0                  #   текущая spot-цена
-    lastSpotPx = 0
-
     listTick = np.zeros((NUMTICKS, 3), dtype=float)          #   массив последних тиков
     tickCounter = 0             #   счетчик тиков
 
     flConnect = False           #   флаг нормального соединения с сайтом
+
+    hashpsw = {}
+    pilots = {}
 
     def __init__(self):
 
@@ -51,11 +49,15 @@ class MainWindow(QMainWindow, UiMainWindow):
             msg_box.exec()
             sys.exit()
 
+        self.fillhashpsw()
+        self.fillpilots()
+
+
         # создание визуальной формы
         self.setupui(self)
         self.show()
 
-        self.wssserver = WSSServer(self, self.db)
+        self.wssserver = WSSServer(self, self.pilots)
         self.wssserver.daemon = True
         self.wssserver.start()
 
@@ -93,6 +95,20 @@ class MainWindow(QMainWindow, UiMainWindow):
     def closeEvent(self, *args, **kwargs):
         if self.db.isOpen():
             self.db.close()
+
+    def fillhashpsw(self):
+        q1 = QSqlQuery(self.db)
+        q1.prepare("SELECT * FROM clients")
+        q1.exec_()
+        while q1.next():
+            self.hashpsw[q1.value(0)] = q1.value(1)
+
+    def fillpilots(self):
+        q1 = QSqlQuery(self.db)
+        q1.prepare('SELECT login, name, apikey FROM pilots')
+        q1.exec_()
+        while q1.next():
+            self.pilots[q1.value(0)] = {'name': q1.value(1), 'apikey': q1.value(2), 'status': 0}
 
     def midvol(self):
         # self.lock.acquire()
