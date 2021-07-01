@@ -12,7 +12,7 @@ class UiMainWindow(object):
 
     def setupui(self, mainwindow):
         mainwindow.setObjectName("MainWindow")
-        mainwindow.setWindowTitle("DLM Core v1.0.2")
+        mainwindow.setWindowTitle('DLM Core v' + mainwindow.version)
 
         self.centralwidget = QWidget(mainwindow)
         self.centralwidget.setObjectName("centralwidget")

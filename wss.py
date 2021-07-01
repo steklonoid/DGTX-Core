@@ -23,12 +23,24 @@ class WSSServer(Thread):
         rockets = {}
         races = {}
 
-        async def add_rocket(websocket, params):
+        async def rockets_changed():
+            for websocket in managers.keys():
+                await mc_getrockets(websocket, 0)
+
+        async def add_rocket(websocket, id, data):
             if not rockets.get(websocket):
-                rockets[websocket] = {'id':id, 'ts':time.time(), 'version':params['version'], 'status':'wait'}
-                data = {'registration':'ok'}
-                data = json.dumps(data)
-                await asyncio.wait([websocket.send(data)])
+                rockets[websocket] = {'ts':time.time(), 'version':data['version'], 'status':0}
+                connections[websocket]['type'] = 'rocket'
+                str = {'id':id, 'message_type':'registration', 'data':{'status':'ok'}}
+                await rockets_changed()
+            else:
+                str = {'id': id, 'message_type': 'registration', 'data': {'status': 'error', 'message':'Есть уже такая ракета'}}
+            str = json.dumps(str)
+            await asyncio.wait([websocket.send(str)])
+
+        async def managers_changed():
+            for websocket in managers.keys():
+                await mc_getmanagers(websocket, 0)
 
         async def add_manager(websocket, id, data):
             if not managers.get(websocket):
@@ -37,6 +49,7 @@ class WSSServer(Thread):
                     managers[websocket] = {'ts': time.time(), 'user':data['user']}
                     connections[websocket]['type'] = 'manager'
                     str = {'id':id, 'message_type':'registration', 'data':{'status':'ok'}}
+                    await managers_changed()
                 else:
                     str = {'id': id, 'message_type': 'registration', 'data': {'status': 'error', 'message': 'Неверный пароль'}}
             else:
@@ -49,42 +62,73 @@ class WSSServer(Thread):
 
         async def unregister(websocket):
             connections.pop(websocket, None)
-            managers.pop(websocket, None)
-            rockets.pop(websocket, None)
+            if managers.get(websocket):
+                managers.pop(websocket, None)
+                await managers_changed()
+            if rockets.get(websocket):
+                rockets.pop(websocket, None)
+                await rockets_changed()
 
-        async def sendlist(websocket, d, strd):
-            data = {'message_type':strd, 'data':[value for (key, value) in d.items()]}
+        async def mc_getrockets(websocket, id):
+            rockets_data = {connections[k]['id']:{'version':v['version'], 'status':v['status']} for k,v in rockets.items()}
+            data = {'id':id, 'message_type':'cm', 'data':{'command':'getrockets', 'rockets':rockets_data}}
             data = json.dumps(data)
             await asyncio.wait([websocket.send(data)])
 
-        async def counter(websocket, path):
+        async def mc_getmanagers(websocket, id):
+            managers_data = [v['user'] for v in managers.values()]
+            data = {'id':id, 'message_type':'cm', 'data':{'command':'getmanagers', 'managers':managers_data}}
+            data = json.dumps(data)
+            await asyncio.wait([websocket.send(data)])
+
+        async def mc_getpilots(websocket, id):
+            pilots_data = {k:{'name':v['name'], 'status':v['status']} for k,v in pilots.items()}
+            data = {'id':id, 'message_type':'cm', 'data':{'command':'getpilots', 'pilots':pilots_data}}
+            data = json.dumps(data)
+            await asyncio.wait([websocket.send(data)])
+
+        async def mc_races(websocket, id):
+            pass
+
+        async def cb_authpilot(pilot, rocket):
+            websocket_rocket = [k for k,v in connections.items() if v['id'] == rocket][0]
+            ak = pilots[pilot]['apikey']
+            data = {'id': 11, 'message_type': 'cb', 'data': {'command': 'authpilot', 'pilot': pilot, 'ak':ak, 'rocket':rocket}}
+            data = json.dumps(data)
+            await asyncio.wait([websocket_rocket.send(data)])
+
+        async def mainroutine(websocket, path):
             await register(websocket)
             try:
                 async for message in websocket:
                     mes = json.loads(message)
+                    print(mes)
                     id = mes.get('id')
                     message_type = mes.get('message_type')
                     data = mes.get('data')
                     if message_type == 'registration':
                         typereg = data.get('typereg')
                         if typereg == 'rocket':
-                            await add_rocket(websocket, data)
+                            await add_rocket(websocket, id, data)
                         elif typereg == 'manager':
                             await add_manager(websocket, id, data)
                         else:
                             pass
-                    elif message_type == 'manager_command':
-                        if managers.get(websocket):
-                            #   params = {'command':command}
+                    elif message_type == 'mc':
+                        if managers.get(websocket):                            
                             command = data.get('command')
-                            if command == 'getrocketslist':
-                                await sendlist(websocket, rockets, command)
-                            elif command == 'getmanagerslist':
-                                await sendlist(websocket, managers, command)
-                            elif command == 'getpilotslist':
-                                await sendlist(websocket, pilots, command)
-                            elif command == 'getraceslist':
-                                await sendlist(websocket, races, command)
+                            if command == 'getrockets':
+                                await mc_getrockets(websocket, id)
+                            elif command == 'getmanagers':
+                                await mc_getmanagers(websocket, id)
+                            elif command == 'getpilots':
+                                await mc_getpilots(websocket, id)
+                            elif command == 'getraces':
+                                await mc_races(websocket, id)
+                            elif command == 'authpilot':
+                                pilot = data.get('pilot')
+                                rocket = int(data.get('rocket'))
+                                await cb_authpilot(pilot, rocket)
                             elif command == 'getpilotinfo':
                                 pass
                             elif command == 'getraceinfo':
@@ -108,11 +152,11 @@ class WSSServer(Thread):
         q1.prepare('SELECT login, name, psw, apikey FROM pilots')
         q1.exec_()
         while q1.next():
-            pilots[q1.value(0)] = {'login':q1.value(0), 'name':q1.value(1), 'psw':q1.value(2), 'apikey':q1.value(3), 'status':'wait'}
+            pilots[q1.value(0)] = {'name':q1.value(1), 'psw':q1.value(2), 'apikey':q1.value(3), 'status':0}
 
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
-        start_server = websockets.serve(counter, "localhost", 6789)
+        start_server = websockets.serve(mainroutine, "localhost", 6789)
         loop.run_until_complete(start_server)
         loop.run_forever()
 
