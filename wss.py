@@ -73,9 +73,26 @@ class WSSServer(Thread):
 
         async def add_race(rocket, pilot):
             if not races.get(rocket):
-                races[rocket] = {'ts':time.time(), 'pilot':pilot, 'status':0}
+                races[rocket] = {'ts':time.time(), 'pilot':pilot, 'status':0, 'parameters':{}, 'info':{}}
                 rockets[rocket]['status'] = 1
                 pilots[pilot]['status'] = 1
+                await races_changed()
+
+        async def race_info(rocket, parameters, info):
+            if races.get(rocket):
+                print('here')
+                pilot = races[rocket]['pilot']
+                races[rocket]['parameters'] = parameters
+                races[rocket]['info'] = info
+                flRace = parameters.get('flRace')
+                if flRace:
+                    rockets[rocket]['status'] = 2
+                    pilots[pilot]['status'] = 2
+                    races[rocket]['status'] = 1
+                else:
+                    rockets[rocket]['status'] = 1
+                    pilots[pilot]['status'] = 1
+                    races[rocket]['status'] = 0
                 await races_changed()
 
         async def register(websocket):
@@ -96,7 +113,7 @@ class WSSServer(Thread):
                 await races_changed()
 
 #   ====================================================================================================================
-
+    #   ----------------------------------------------------------------------------------------------------------------
         async def mc_getrockets(websocket, id):
             rockets_data = {connections[k]['id']:{'version':v['version'], 'status':v['status']} for k,v in rockets.items()}
             data = {'id':id, 'message_type':'cm', 'data':{'command':'getrockets', 'rockets':rockets_data}}
@@ -116,10 +133,12 @@ class WSSServer(Thread):
             await asyncio.wait([websocket.send(data)])
 
         async def mc_getraces(websocket, id):
-            races_data = {connections[k]['id']: {'pilot': v['pilot'], 'status': v['status']} for k, v in races.items()}
+            races_data = {connections[k]['id']: {'pilot': v['pilot'], 'status': v['status'], 'parameters':v['parameters'], 'info':v['info']} for k, v in races.items()}
             data = {'id': id, 'message_type': 'cm', 'data': {'command': 'getraces', 'races': races_data}}
             data = json.dumps(data)
             await asyncio.wait([websocket.send(data)])
+
+        #   ----------------------------------------------------------------------------------------------------------------
 
         async def cb_authpilot(pilot, rocket):
             websocket_rocket = [k for k,v in connections.items() if v['id'] == rocket][0]
@@ -140,6 +159,13 @@ class WSSServer(Thread):
             data = {'id': 11, 'message_type': 'cb', 'data': {'command': 'authpilot', 'pilot': pilot, 'ak':ak}}
             data = json.dumps(data)
             await asyncio.wait([websocket_rocket.send(data)])
+
+        async def cb_setparameters(rocket, parameters):
+            data = {'id': 15, 'message_type': 'cb', 'data': {'command': 'cb_setparameters', 'parameters': parameters}}
+            data = json.dumps(data)
+            await asyncio.wait([rocket.send(data)])
+
+        #   ----------------------------------------------------------------------------------------------------------------
 
         async def mainroutine(websocket, path):
             await register(websocket)
@@ -173,14 +199,10 @@ class WSSServer(Thread):
                                 pilot = data.get('pilot')
                                 rocket = int(data.get('rocket'))
                                 await cb_authpilot(pilot, rocket)
-                            elif command == 'getpilotinfo':
-                                pass
-                            elif command == 'getraceinfo':
-                                pass
-                            elif command == 'getraceparameters':
-                                pass
-                            elif command == 'setraceparameters':
-                                pass
+                            elif command == 'setparameters':
+                                parameters = data.get('parameters')
+                                rocket = int(data.get('rocket'))
+                                await cb_setparameters(rocket, parameters)
                             else:
                                 pass
                         else:
@@ -193,6 +215,14 @@ class WSSServer(Thread):
                                 if status == 'ok':
                                     pilot = data.get('pilot')
                                     await add_race(websocket, pilot)
+                            elif command == 'race_info':
+                                parameters = data.get('parameters')
+                                info = data.get('info')
+                                await race_info(websocket, parameters, info)
+                            else:
+                                pass
+                        else:
+                            pass
                     else:
                         pass
             finally:
