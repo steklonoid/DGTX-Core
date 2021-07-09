@@ -14,7 +14,7 @@ from threading import Lock
 NUMTICKS = 128
 
 class MainWindow(QMainWindow, UiMainWindow):
-    version = '1.0.4'
+    version = '1.0.5'
     settings = QSettings("./config.ini", QSettings.IniFormat)   # файл настроек
     lock = Lock()
 
