@@ -12,7 +12,8 @@ class UiMainWindow(object):
 
     def setupui(self, mainwindow):
         mainwindow.setObjectName("MainWindow")
-        mainwindow.setWindowTitle('DLM Core v' + mainwindow.version)
+        mainwindow.setWindowTitle('DLM Core v ' + mainwindow.version)
+        mainwindow.resize(320, 120)
 
         self.centralwidget = QWidget(mainwindow)
         self.centralwidget.setObjectName("centralwidget")
@@ -22,11 +23,6 @@ class UiMainWindow(object):
         self.gridLayout.setContentsMargins(1, 1, 1, 1)
         self.gridLayout.setObjectName("gridLayout")
 
-        l1 = QLabel('Core')
-        l1.setAlignment(Qt.AlignHCenter | Qt.AlignVCenter)
-        self.gridLayout.addWidget(l1)
-
-
-        self.statusbar = QStatusBar(mainwindow)
-        self.statusbar.setObjectName("statusbar")
-        mainwindow.setStatusBar(self.statusbar)
+        self.l_DGTX = QLabel()
+        self.l_DGTX.setAlignment(Qt.AlignHCenter | Qt.AlignVCenter)
+        self.gridLayout.addWidget(self.l_DGTX, 0, 0, 1, 1)

@@ -221,37 +221,37 @@ class WSSServer(Thread):
         loop.run_forever()
 
 
-class WSThread(Thread):
-    def __init__(self, pc):
-        super(WSThread, self).__init__()
+class DGTXIndex(Thread):
+
+    def __init__(self, pc, ex):
+        super(DGTXIndex, self).__init__()
         self.pc = pc
+        self.ex = ex
         self.flClosing = False
 
     def run(self) -> None:
         def on_open(wsapp):
-            logging.info('open')
-            self.pc.flConnect = True
-            self.pc.statusbar.showMessage('Есть соединение с сервером')
-            self.changeEx(self.pc.symbol)
+            logging.info(self.ex + ' ' + 'Соединение с DGTX установлено')
+            self.send_public('subscribe', self.ex + '@index')
 
         def on_close(wsapp, close_status_code, close_msg):
-            logging.info('close / ' + str(close_status_code) + ' / ' + str(close_msg))
-            self.pc.flConnect = False
-            self.pc.statusbar.showMessage('Нет соединения с сервером')
+            logging.info(self.ex + ' close / ' + str(close_status_code) + ' / ' + str(close_msg))
 
         def on_error(wsapp, error):
-            logging.info(error)
+            logging.info(self.ex + ' ' + 'Ошибка соединения с DGTX')
+            time.sleep(1)
 
         def on_message(wssapp, message):
             if message == 'ping':
                 wssapp.send('pong')
             else:
-                self.message = json.loads(message)
-                id = self.message.get('id')
-                status = self.message.get('status')
-                ch = self.message.get('ch')
+                mes = json.loads(message)
+                id = mes.get('id')
+                status = mes.get('status')
+                ch = mes.get('ch')
                 if ch:
-                    self.pc.listf[ch]['q'].put(self.message.get('data'))
+                    if ch == 'index':
+                        pass
                 elif status:
                     if status == 'error':
                         logging.info(self.message)
@@ -261,83 +261,66 @@ class WSThread(Thread):
                 self.wsapp = websocket.WebSocketApp("wss://ws.mapi.digitexfutures.com", on_open=on_open,
                                                     on_close=on_close, on_error=on_error, on_message=on_message)
                 self.wsapp.run_forever()
-                self.pc.statusbar.showMessage('Восстановление соединения с сервером')
             except:
                 pass
-            time.sleep(1)
-
-    def changeEx(self, name):
-        self.send_public('subscribe', name + '@index', name + '@orderbook_1')
+            finally:
+                time.sleep(1)
 
     def send_public(self, method, *params):
         pd = {'id':1, 'method':method}
         if params:
             pd['params'] = list(params)
         strpar = json.dumps(pd)
-        self.pc.sendq.put(strpar)
-
-    def send_privat(self, method, **params):
-        pd = {'id':self.methods.get(method), 'method':method, 'params':params}
-        strpar = json.dumps(pd)
-        self.pc.sendq.put(strpar)
+        self.wsapp.send(strpar)
 
 
-class Worker(Thread):
-    def __init__(self, q, f):
-        super(Worker, self).__init__()
-        self.q = q
-        self.f = f
+class DGTXBalances(Thread):
 
-    def run(self) -> None:
-        while True:
-            data = self.q.get()
-            self.f(data)
-
-
-class Senderq(Thread):
-    def __init__(self, q, th):
-        super(Senderq, self).__init__()
-        self.q = q
-        self.th = th
+    def __init__(self, pc):
+        super(DGTXBalances, self).__init__()
+        self.pc = pc
         self.flClosing = False
 
     def run(self) -> None:
+        def on_open(wsapp):
+            logging.info('Balances Соединение с DGTX установлено')
+
+        def on_close(wsapp, close_status_code, close_msg):
+            logging.info('Balances close / ' + str(close_status_code) + ' / ' + str(close_msg))
+
+        def on_error(wsapp, error):
+            logging.info('Balances Ошибка соединения с DGTX')
+            time.sleep(1)
+
+        def on_message(wssapp, message):
+            if message == 'ping':
+                wssapp.send('pong')
+            else:
+                mes = json.loads(message)
+                id = mes.get('id')
+                status = mes.get('status')
+                ch = mes.get('ch')
+                if ch:
+                   pass
+                elif status:
+                    if status == 'error':
+                        logging.info(self.message)
+
         while not self.flClosing:
-            data = self.q.get()
             try:
-                self.th.wsapp.send(data)
+                self.wsapp = websocket.WebSocketApp("wss://ws.mapi.digitexfutures.com", on_open=on_open,
+                                                    on_close=on_close, on_error=on_error, on_message=on_message)
+                self.wsapp.run_forever()
             except:
                 pass
-            time.sleep(0.1)
+            finally:
+                time.sleep(1)
 
+    def getbalance(self, pilot):
+        pass
 
-class InTimer(Thread):
-    def __init__(self, pc):
-        super(InTimer, self).__init__()
-        self.pc = pc
-        self.delay = 0.1
-        self.pnlStartTime = 0
-        self.pnlTime = 0
-        self.workingStartTime = 0
-        self.flWorking = False
-        self.flClosing = False
+    def send_privat(self, method, **params):
+        pd = {'id': self.methods.get(method), 'method': method, 'params': params}
+        strpar = json.dumps(pd)
+        self.wssapp.send(strpar)
 
-    def run(self) -> None:
-        while not self.flClosing:
-            if self.flWorking:
-                self.pnlTime = time.time() - self.pnlStartTime
-            time.sleep(self.delay)
-
-
-class Analizator(Thread):
-
-    def __init__(self, f):
-        super(Analizator, self).__init__()
-        self.delay = 1
-        self.flClosing = False
-        self.f = f
-
-    def run(self) -> None:
-        while not self.flClosing:
-            self.f()
-            time.sleep(self.delay)
