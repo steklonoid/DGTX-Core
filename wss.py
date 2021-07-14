@@ -99,6 +99,11 @@ class WSSServer(Thread):
             #     await races_changed()
 
 #   ====================================================================================================================
+        async def cm_pilot(websocket, pilot, id):
+            pilot_data = {pilot:{'name':pilots[pilot]['name'], 'status':pilots[pilot]['status'], 'balance':pilots[pilot]['balance']}}
+            data = {'id': id, 'message_type': 'cm', 'data': {'command': 'getpilot', 'pilot': pilot_data}}
+            data = json.dumps(data)
+            await asyncio.wait([websocket.send(data)])
     #   ----------------------------------------------------------------------------------------------------------------
         async def mc_getrockets(websocket, id):
             rockets_data = {connections[k]['id']:{'version':v['version'], 'status':v['status']} for k,v in rockets.items()}
@@ -113,10 +118,8 @@ class WSSServer(Thread):
             await asyncio.wait([websocket.send(data)])
 
         async def mc_getpilots(websocket, id):
-            pilots_data = {k:{'name':v['name'], 'status':v['status']} for k,v in pilots.items()}
-            data = {'id':id, 'message_type':'cm', 'data':{'command':'getpilots', 'pilots':pilots_data}}
-            data = json.dumps(data)
-            await asyncio.wait([websocket.send(data)])
+            for pilot in pilots.keys():
+                await cm_pilot(websocket, pilot, id)
 
         # async def mc_getraces(websocket, id):
         #     races_data = {connections[k]['id']: {'pilot': v['pilot'], 'status': v['status'], 'parameters':v['parameters'], 'info':v['info']} for k, v in races.items()}
@@ -141,7 +144,6 @@ class WSSServer(Thread):
             iv = derived[0:IV_SIZE]
             key = derived[IV_SIZE:]
             ak = AES.new(key, AES.MODE_CFB, iv).decrypt(en_ak_byte[SALT_SIZE:]).decode('utf-8')
-            print(ak)
             data = {'id': 11, 'message_type': 'cb', 'data': {'command': 'authpilot', 'pilot': pilot, 'ak':ak}}
             data = json.dumps(data)
             await asyncio.wait([websocket_rocket.send(data)])
@@ -274,25 +276,30 @@ class DGTXIndex(Thread):
         self.wsapp.send(strpar)
 
 
-class DGTXBalances(Thread):
+class DGTXBalance(Thread):
 
-    def __init__(self, pc):
-        super(DGTXBalances, self).__init__()
+    def __init__(self, pc, pilot, ak, expanses):
+        super(DGTXBalance, self).__init__()
         self.pc = pc
+        self.pilot = pilot
+        self.ak = ak
+        self.expanses = expanses
         self.flClosing = False
 
     def run(self) -> None:
         def on_open(wsapp):
-            logging.info('Balances Соединение с DGTX установлено')
+            logging.info(self.pilot + ' Соединение с DGTX установлено')
+            self.send_privat('auth', type='token', value=self.ak)
 
         def on_close(wsapp, close_status_code, close_msg):
-            logging.info('Balances close / ' + str(close_status_code) + ' / ' + str(close_msg))
+            logging.info(self.pilot + ' close / ' + str(close_status_code) + ' / ' + str(close_msg))
 
         def on_error(wsapp, error):
-            logging.info('Balances Ошибка соединения с DGTX')
+            logging.info(self.pilot + ' Ошибка соединения с DGTX')
             time.sleep(1)
 
         def on_message(wssapp, message):
+            print(message)
             if message == 'ping':
                 wssapp.send('pong')
             else:
@@ -300,8 +307,20 @@ class DGTXBalances(Thread):
                 id = mes.get('id')
                 status = mes.get('status')
                 ch = mes.get('ch')
-                if ch:
-                   pass
+                if ch == 'tradingStatus':
+                    data = mes.get('data')
+                    available = data.get('available')
+                    if available:
+                        self.pc.pilots[self.pilot]['status'] = 1
+                        self.send_privat('getTraderStatus', symbol='BTCUSD-PERP')
+                        # self.getinfo()
+                elif ch == 'traderStatus':
+                    data = mes.get('data')
+                    expanse = data.get('symbol')
+                    balance = data.get('traderBalance')
+                    contracts = len(data.get('contracts'))
+                    orders = len(data.get('activeOrders'))
+                    self.pc.pilots[self.pilot]['info'][expanse] = {'balance':balance, 'contracts':contracts, 'orders':orders}
                 elif status:
                     if status == 'error':
                         logging.info(self.message)
@@ -316,11 +335,22 @@ class DGTXBalances(Thread):
             finally:
                 time.sleep(1)
 
-    def getbalance(self, pilot):
+    def getinfo(self):
+        for expanse in self.expanses.keys():
+            self.send_privat('getTraderStatus', symbol=expanse)
+            time.sleep(0.1)
+        time.sleep(1)
+        self.getinfo()
+
+
+    def message_tradingStatus(self, data):
+        status = data.get('available')
+
+    def message_traderStatus(self, data):
         pass
 
     def send_privat(self, method, **params):
-        pd = {'id': self.methods.get(method), 'method': method, 'params': params}
+        pd = {'id': 0, 'method': method, 'params': params}
         strpar = json.dumps(pd)
-        self.wssapp.send(strpar)
+        self.wsapp.send(strpar)
 
