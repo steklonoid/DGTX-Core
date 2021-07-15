@@ -6,23 +6,19 @@ import time
 import logging
 import websockets
 import asyncio
-import sys
-import hashlib
-from Crypto.Cipher import AES # pip install pycryptodome
+from threading import Lock
 
 PSW = 'asd'
 
 class WSSServer(Thread):
-    def __init__(self, pc, pilots):
+    def __init__(self, pc):
         super(WSSServer, self).__init__()
         self.pc = pc
-        self.pilots = pilots
 
     def run(self) -> None:
 
         connections = {}
         managers = {}
-        pilots = self.pilots
         rockets = {}
 
         async def rockets_changed():
@@ -99,8 +95,9 @@ class WSSServer(Thread):
             #     await races_changed()
 
 #   ====================================================================================================================
-        async def cm_pilot(websocket, pilot, id):
-            pilot_data = {pilot:{'name':pilots[pilot]['name'], 'status':pilots[pilot]['status'], 'balance':pilots[pilot]['balance']}}
+        async def getpilotinfo(websocket, pilot, id):
+            pilots = self.pc.pilots
+            pilot_data = {pilot:{'name':pilots[pilot]['name'], 'status':pilots[pilot]['status'], 'info':pilots[pilot]['info']}}
             data = {'id': id, 'message_type': 'cm', 'data': {'command': 'getpilot', 'pilot': pilot_data}}
             data = json.dumps(data)
             await asyncio.wait([websocket.send(data)])
@@ -118,8 +115,8 @@ class WSSServer(Thread):
             await asyncio.wait([websocket.send(data)])
 
         async def mc_getpilots(websocket, id):
-            for pilot in pilots.keys():
-                await cm_pilot(websocket, pilot, id)
+            for pilot in self.pc.pilots.keys():
+                await getpilotinfo(websocket, pilot, id)
 
         # async def mc_getraces(websocket, id):
         #     races_data = {connections[k]['id']: {'pilot': v['pilot'], 'status': v['status'], 'parameters':v['parameters'], 'info':v['info']} for k, v in races.items()}
@@ -131,19 +128,7 @@ class WSSServer(Thread):
 
         async def cb_authpilot(pilot, rocket):
             websocket_rocket = [k for k,v in connections.items() if v['id'] == rocket][0]
-            ak = pilots[pilot]['apikey']
-
-            IV_SIZE = 16  # 128 bit, fixed for the AES algorithm
-            KEY_SIZE = 32  # 256 bit meaning AES-256, can also be 128 or 192 bits
-            SALT_SIZE = 16  # This size is arbitrary
-            en_ak_int = int(ak)
-            en_ak_byte = en_ak_int.to_bytes((en_ak_int.bit_length() + 7) // 8, sys.byteorder)
-            salt = en_ak_byte[0:SALT_SIZE]
-            derived = hashlib.pbkdf2_hmac('sha256', self.pc.hashpsw['psw'].encode('utf-8'), salt, 100000,
-                                          dklen=IV_SIZE + KEY_SIZE)
-            iv = derived[0:IV_SIZE]
-            key = derived[IV_SIZE:]
-            ak = AES.new(key, AES.MODE_CFB, iv).decrypt(en_ak_byte[SALT_SIZE:]).decode('utf-8')
+            ak = self.pc.pilots[pilot]['ak']
             data = {'id': 11, 'message_type': 'cb', 'data': {'command': 'authpilot', 'pilot': pilot, 'ak':ak}}
             data = json.dumps(data)
             await asyncio.wait([websocket_rocket.send(data)])
@@ -278,6 +263,8 @@ class DGTXIndex(Thread):
 
 class DGTXBalance(Thread):
 
+    lock = Lock()
+
     def __init__(self, pc, pilot, ak, expanses):
         super(DGTXBalance, self).__init__()
         self.pc = pc
@@ -311,16 +298,19 @@ class DGTXBalance(Thread):
                     data = mes.get('data')
                     available = data.get('available')
                     if available:
+                        self.lock.acquire()
                         self.pc.pilots[self.pilot]['status'] = 1
-                        self.send_privat('getTraderStatus', symbol='BTCUSD-PERP')
-                        # self.getinfo()
+                        self.lock.release()
+                        self.getinfo()
                 elif ch == 'traderStatus':
                     data = mes.get('data')
                     expanse = data.get('symbol')
                     balance = data.get('traderBalance')
                     contracts = len(data.get('contracts'))
                     orders = len(data.get('activeOrders'))
+                    self.lock.acquire()
                     self.pc.pilots[self.pilot]['info'][expanse] = {'balance':balance, 'contracts':contracts, 'orders':orders}
+                    self.lock.release()
                 elif status:
                     if status == 'error':
                         logging.info(self.message)
@@ -339,15 +329,10 @@ class DGTXBalance(Thread):
         for expanse in self.expanses.keys():
             self.send_privat('getTraderStatus', symbol=expanse)
             time.sleep(0.1)
-        time.sleep(1)
-        self.getinfo()
 
-
-    def message_tradingStatus(self, data):
-        status = data.get('available')
-
-    def message_traderStatus(self, data):
-        pass
+    def close(self):
+        self.flClosing = True
+        self.wsapp.close()
 
     def send_privat(self, method, **params):
         pd = {'id': 0, 'method': method, 'params': params}

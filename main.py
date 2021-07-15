@@ -52,16 +52,9 @@ class MainWindow(QMainWindow, UiMainWindow):
 
         self.fillhashpsw()
 
-
         # создание визуальной формы
         self.setupui(self)
         self.show()
-
-
-
-
-
-
 
     def closeEvent(self, *args, **kwargs):
         if self.db.isOpen():
@@ -110,12 +103,17 @@ class MainWindow(QMainWindow, UiMainWindow):
 
     def checkpsw(self, psw):
         if bcrypt.checkpw(psw.encode('utf-8'), self.hashpsw['core'].encode('utf-8')):
+            self.pb_enter.setText('вход выполнен: ')
+            self.pb_enter.setStyleSheet("color:rgb(64, 192, 64); font: bold 12px;border: none")
             self.psw = psw
             self.fillpilots()
             self.fillexpanses()
-            self.wssserver = WSSServer(self, self.pilots)
+            self.wssserver = WSSServer(self)
             self.wssserver.daemon = True
             self.wssserver.start()
+        else:
+            self.pb_enter.setText('вход не выполнен')
+            self.pb_enter.setStyleSheet("color:rgb(255, 96, 96); font: bold 12px;border: none")
 
     @pyqtSlot()
     def buttonLogin_clicked(self):
