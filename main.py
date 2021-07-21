@@ -6,7 +6,7 @@ from PyQt5.QtWidgets import QMainWindow, QApplication, QMessageBox
 from PyQt5.QtCore import QSettings, pyqtSlot
 from PyQt5.QtSql import QSqlDatabase, QSqlQuery
 from mainWindow import UiMainWindow
-from wss import DGTXIndex, DGTXBalance, WSSServer
+from wss import DGTXIndex, DGTXBalance, InfoRecipient, WSSServer
 import numpy as np
 from threading import Lock
 from loginWindow import LoginWindow
@@ -24,8 +24,10 @@ class MainWindow(QMainWindow, UiMainWindow):
 
     hashpsw = {}
     pilots = {}
+    rockets = {}
     expanses = {'BTCUSD-PERP':None, 'ETHUSD-PERP':None}
     psw = None
+
 
     def __init__(self):
 
@@ -81,6 +83,12 @@ class MainWindow(QMainWindow, UiMainWindow):
         ak_enc = AES.new(key, AES.MODE_CFB, iv).decrypt(en_ak_byte[SALT_SIZE:]).decode('utf-8')
         return ak_enc
 
+    def getpilotinfo(self, pilot):
+        status = self.pilots[pilot].get('status')
+        if status == 1:
+            agent = self.pilots[pilot].get('agent')
+            agent.getinfo()
+
     def fillpilots(self):
         q1 = QSqlQuery(self.db)
         q1.prepare('SELECT login, name, apikey FROM pilots')
@@ -92,7 +100,10 @@ class MainWindow(QMainWindow, UiMainWindow):
             dgtxbalance = DGTXBalance(self, login, ak, self.expanses)
             dgtxbalance.daemon = True
             dgtxbalance.start()
-            self.pilots[login] = {'name': name, 'ak':ak, 'status': 0, 'agent':dgtxbalance, 'info':{}}
+            self.pilots[login] = {'name': name, 'ak':ak, 'status': 0, 'agent':dgtxbalance, 'rocket':None, 'info':{}}
+        self.inforecipient = InfoRecipient(self, 5)
+        self.inforecipient.daemon = True
+        self.inforecipient.start()
 
     def fillexpanses(self):
         for expanse in self.expanses.keys():
@@ -103,11 +114,14 @@ class MainWindow(QMainWindow, UiMainWindow):
 
     def checkpsw(self, psw):
         if bcrypt.checkpw(psw.encode('utf-8'), self.hashpsw['core'].encode('utf-8')):
+            #   если пароль прошел проверку
             self.pb_enter.setText('вход выполнен: ')
             self.pb_enter.setStyleSheet("color:rgb(64, 192, 64); font: bold 12px;border: none")
             self.psw = psw
-            self.fillpilots()
             self.fillexpanses()
+            self.fillpilots()
+
+            #   запускаем websocket-сервер
             self.wssserver = WSSServer(self)
             self.wssserver.daemon = True
             self.wssserver.start()
@@ -117,10 +131,12 @@ class MainWindow(QMainWindow, UiMainWindow):
 
     @pyqtSlot()
     def buttonLogin_clicked(self):
-        rw = LoginWindow()
-        rw.userlogined.connect(lambda: self.checkpsw(rw.psw))
-        rw.setupUi()
-        rw.exec_()
+        #   если еще не авторизован - вызываем окно авторизации
+        if not self.psw:
+            rw = LoginWindow()
+            rw.userlogined.connect(lambda: self.checkpsw(rw.psw))
+            rw.setupUi()
+            rw.exec_()
 
 
 app = QApplication([])
