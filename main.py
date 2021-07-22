@@ -6,26 +6,30 @@ from PyQt5.QtWidgets import QMainWindow, QApplication, QMessageBox
 from PyQt5.QtCore import QSettings, pyqtSlot
 from PyQt5.QtSql import QSqlDatabase, QSqlQuery
 from mainWindow import UiMainWindow
-from wss import DGTXIndex, DGTXBalance, InfoRecipient, WSSServer
-import numpy as np
+from wssserver import WSSServer
+from dgtxindex import DGTXIndex
+from dgtxbalance import DGTXBalance
+from timer import Timer, Worker
+from selfconnector import SelfConnector
 from threading import Lock
 from loginWindow import LoginWindow
 import bcrypt   #pip install bcrypt
 import hashlib
 from Crypto.Cipher import AES # pip install pycryptodome
+import numpy as np
 
 
 NUMTICKS = 128
 
 class MainWindow(QMainWindow, UiMainWindow):
-    version = '1.0.6'
+    version = '1.0.7'
     settings = QSettings("./config.ini", QSettings.IniFormat)   # файл настроек
     lock = Lock()
 
     hashpsw = {}
     pilots = {}
     rockets = {}
-    expanses = {'BTCUSD-PERP':None, 'ETHUSD-PERP':None}
+    expanses = {'BTCUSD-PERP':np.ndarray(shape=(NUMTICKS, 1), dtype=float), 'ETHUSD-PERP':np.ndarray(shape=(NUMTICKS, 1), dtype=float)}
     psw = None
 
 
@@ -83,11 +87,10 @@ class MainWindow(QMainWindow, UiMainWindow):
         ak_enc = AES.new(key, AES.MODE_CFB, iv).decrypt(en_ak_byte[SALT_SIZE:]).decode('utf-8')
         return ak_enc
 
-    def getpilotinfo(self, pilot):
-        status = self.pilots[pilot].get('status')
-        if status == 1:
-            agent = self.pilots[pilot].get('agent')
-            agent.getinfo()
+    def getpilotinfo(self, pilot, data):
+        balance = data.get('traderBalance')
+        info = {'name':self.pilots[pilot]['name'], 'ak':self.pilots[pilot]['ak'], 'balance':balance, 'status':self.pilots[pilot]['status']}
+        self.selfconnector.pilot_info(pilot, info)
 
     def fillpilots(self):
         q1 = QSqlQuery(self.db)
@@ -97,20 +100,21 @@ class MainWindow(QMainWindow, UiMainWindow):
             login = q1.value(0)
             name = q1.value(1)
             ak = self.getak(q1.value(2))
-            dgtxbalance = DGTXBalance(self, login, ak, self.expanses)
+            dgtxbalance = DGTXBalance(self, login, ak)
             dgtxbalance.daemon = True
             dgtxbalance.start()
-            self.pilots[login] = {'name': name, 'ak':ak, 'status': 0, 'agent':dgtxbalance, 'rocket':None, 'info':{}}
-        self.inforecipient = InfoRecipient(self, 5)
-        self.inforecipient.daemon = True
-        self.inforecipient.start()
+            self.pilots[login] = {'name': name, 'ak': ak, 'status': 0, 'agent': dgtxbalance}
+            self.timer.pilotadd(login, dgtxbalance)
+
 
     def fillexpanses(self):
+        worker = Worker(self.market_analizator, 2)
+        worker.daemon = True
+        worker.start()
         for expanse in self.expanses.keys():
             dgtxindex = DGTXIndex(self, expanse)
             dgtxindex.daemon = True
             dgtxindex.start()
-            self.expanses[expanse] = dgtxindex
 
     def checkpsw(self, psw):
         if bcrypt.checkpw(psw.encode('utf-8'), self.hashpsw['core'].encode('utf-8')):
@@ -118,13 +122,23 @@ class MainWindow(QMainWindow, UiMainWindow):
             self.pb_enter.setText('вход выполнен: ')
             self.pb_enter.setStyleSheet("color:rgb(64, 192, 64); font: bold 12px;border: none")
             self.psw = psw
-            self.fillexpanses()
-            self.fillpilots()
 
             #   запускаем websocket-сервер
             self.wssserver = WSSServer(self)
             self.wssserver.daemon = True
             self.wssserver.start()
+
+            self.timer = Timer()
+            self.timer.daemon = True
+            self.timer.start()
+
+            self.selfconnector = SelfConnector(self)
+            self.selfconnector.daemon = True
+            self.selfconnector.start()
+
+            self.fillexpanses()
+
+            self.fillpilots()
         else:
             self.pb_enter.setText('вход не выполнен')
             self.pb_enter.setStyleSheet("color:rgb(255, 96, 96); font: bold 12px;border: none")
@@ -137,6 +151,26 @@ class MainWindow(QMainWindow, UiMainWindow):
             rw.userlogined.connect(lambda: self.checkpsw(rw.psw))
             rw.setupUi()
             rw.exec_()
+
+    def dgtxindex(self, symbol, spotPx):
+        self.lock.acquire()
+        ar = self.expanses[symbol]
+        res = np.empty_like(ar)
+        res[:-1] = ar[1:]
+        res[-1] = spotPx
+        self.expanses[symbol] = res
+        self.lock.release()
+
+    def market_analizator(self):
+        for symbol in self.expanses.keys():
+            self.lock.acquire()
+            ar = np.array(self.expanses[symbol])
+            self.lock.release()
+            ar = np.absolute(ar[1:] - ar[:-1])
+            market_volatility_128 = round(np.mean(ar), 3)
+            info = {'symbol': symbol, 'market_volatility_128': market_volatility_128}
+            print(info)
+            # self.selfconnector.market_info(info)
 
 
 app = QApplication([])
