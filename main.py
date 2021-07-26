@@ -9,7 +9,8 @@ from mainWindow import UiMainWindow
 from wssserver import WSSServer
 from dgtxindex import DGTXIndex
 from dgtxbalance import DGTXBalance
-from timer import Timer, Worker
+from timer import Timer
+from analizator import Analizator
 from selfconnector import SelfConnector
 from threading import Lock
 from loginWindow import LoginWindow
@@ -30,6 +31,7 @@ class MainWindow(QMainWindow, UiMainWindow):
     pilots = {}
     rockets = {}
     expanses = {'BTCUSD-PERP':np.ndarray(shape=(NUMTICKS, 1), dtype=float), 'ETHUSD-PERP':np.ndarray(shape=(NUMTICKS, 1), dtype=float)}
+
     psw = None
 
 
@@ -89,7 +91,7 @@ class MainWindow(QMainWindow, UiMainWindow):
 
     def getpilotinfo(self, pilot, data):
         balance = data.get('traderBalance')
-        info = {'name':self.pilots[pilot]['name'], 'ak':self.pilots[pilot]['ak'], 'balance':balance, 'status':self.pilots[pilot]['status']}
+        info = {'name':self.pilots[pilot]['name'], 'ak':self.pilots[pilot]['ak'], 'balance':balance}
         self.selfconnector.pilot_info(pilot, info)
 
     def fillpilots(self):
@@ -103,14 +105,10 @@ class MainWindow(QMainWindow, UiMainWindow):
             dgtxbalance = DGTXBalance(self, login, ak)
             dgtxbalance.daemon = True
             dgtxbalance.start()
-            self.pilots[login] = {'name': name, 'ak': ak, 'status': 0, 'agent': dgtxbalance}
+            self.pilots[login] = {'name': name, 'ak': ak, 'agent': dgtxbalance}
             self.timer.pilotadd(login, dgtxbalance)
 
-
     def fillexpanses(self):
-        worker = Worker(self.market_analizator, 2)
-        worker.daemon = True
-        worker.start()
         for expanse in self.expanses.keys():
             dgtxindex = DGTXIndex(self, expanse)
             dgtxindex.daemon = True
@@ -161,16 +159,14 @@ class MainWindow(QMainWindow, UiMainWindow):
         self.expanses[symbol] = res
         self.lock.release()
 
-    def market_analizator(self):
-        for symbol in self.expanses.keys():
-            self.lock.acquire()
-            ar = np.array(self.expanses[symbol])
-            self.lock.release()
-            ar = np.absolute(ar[1:] - ar[:-1])
-            market_volatility_128 = round(np.mean(ar), 3)
-            info = {'symbol': symbol, 'market_volatility_128': market_volatility_128}
-            print(info)
-            # self.selfconnector.market_info(info)
+    def market_analizator(self, symbol):
+        self.lock.acquire()
+        ar = np.array(self.expanses[symbol])
+        ar = np.absolute(ar[1:] - ar[:-1])
+        self.lock.release()
+        market_volatility_128 = round(np.mean(ar), 3)
+        info = {'symbol': symbol, 'market_volatility_128': market_volatility_128}
+        self.selfconnector.market_info(info)
 
 
 app = QApplication([])

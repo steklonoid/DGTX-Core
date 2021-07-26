@@ -19,6 +19,7 @@ class Timer(Thread):
             self.lock.release()
             for v in dv:
                 v.getinfo()
+
             time.sleep(self.delay)
 
     def pilotadd(self, login, agent):
@@ -30,14 +31,3 @@ class Timer(Thread):
         self.lock.acquire()
         self.d.pop(login, None)
         self.lock.release()
-
-class Worker(Thread):
-    def __init__(self, f, delay):
-        super(Worker, self).__init__()
-        self.f = f
-        self.delay = delay
-
-    def run(self) -> None:
-        while True:
-            self.f()
-            time.sleep(self.delay)

@@ -22,7 +22,6 @@ class SelfConnector(Thread):
             self.flConnect = False
 
         def on_message(wssapp, message):
-            print(message)
             mes = json.loads(message)
             message_type = mes.get('message_type')
             data = mes.get('data')

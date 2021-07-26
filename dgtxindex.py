@@ -13,6 +13,8 @@ class DGTXIndex(Thread):
         self.pc = pc
         self.ex = ex
         self.flClosing = False
+        self.tickcounter = 0
+        self.lasttime = 0
 
     def run(self) -> None:
         def on_open(wsapp):
@@ -33,7 +35,12 @@ class DGTXIndex(Thread):
                 mes = json.loads(message)
                 ch = mes.get('ch')
                 if ch == 'index':
+                    self.tickcounter += 1
                     self.pc.dgtxindex(self.ex, mes.get('data')['spotPx'])
+                    if self.tickcounter > 128:
+                        if time.time() - self.lasttime > 5:
+                            self.lasttime = time.time()
+                            self.pc.market_analizator(self.ex)
 
         while not self.flClosing:
             try:

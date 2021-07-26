@@ -30,7 +30,6 @@ class DGTXBalance(Thread):
             time.sleep(1)
 
         def on_message(wssapp, message):
-            # print(message)
             if message == 'ping':
                 wssapp.send('pong')
             else:
