@@ -52,11 +52,11 @@ class SelfConnector(Thread):
             finally:
                 time.sleep(1)
 
-    def pilot_info(self, pilot, info):
-        str = {'command':'sc_pilotinfo', 'pilot':pilot, 'info':info}
+    def sc_pilotinfo(self, pilot, pilot_info):
+        str = {'command':'sc_pilotinfo', 'pilot':pilot, 'info':pilot_info}
         self.send_sc(str)
 
-    def market_info(self, info):
+    def sc_marketinfo(self, info):
         str = {'command':'sc_marketinfo', 'info':info}
         self.send_sc(str)
 

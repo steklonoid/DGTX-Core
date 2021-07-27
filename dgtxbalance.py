@@ -10,64 +10,50 @@ class DGTXBalance(Thread):
 
     lock = Lock()
 
-    def __init__(self, pc, pilot, ak):
+    def __init__(self, selfconnector, pilot, name, ak):
         super(DGTXBalance, self).__init__()
-        self.pc = pc
+        self.selfconnector = selfconnector
         self.pilot = pilot
+        self.name = name
         self.ak = ak
-        self.flClosing = False
 
     def run(self) -> None:
         def on_open(wsapp):
-            logging.info(self.pilot + ' Соединение с DGTX установлено')
             self.send_privat('auth', type='token', value=self.ak)
-
-        def on_close(wsapp, close_status_code, close_msg):
-            logging.info(self.pilot + ' close / ' + str(close_status_code) + ' / ' + str(close_msg))
-
-        def on_error(wsapp, error):
-            logging.info(self.pilot + ' Ошибка соединения с DGTX')
-            time.sleep(1)
 
         def on_message(wssapp, message):
             if message == 'ping':
                 wssapp.send('pong')
             else:
                 mes = json.loads(message)
-                status = mes.get('status')
                 ch = mes.get('ch')
                 if ch == 'tradingStatus':
                     data = mes.get('data')
                     available = data.get('available')
-                    self.lock.acquire()
                     if available:
-                        self.pc.pilots[self.pilot]['status'] = 1
+                        self.send_privat('getTraderStatus', symbol='BTCUSD-PERP')
                     else:
-                        self.pc.pilots[self.pilot]['status'] = 0
-                    self.lock.release()
+                        self.sc_pilotinfo(False)
+                        self.wsapp.close()
                 elif ch == 'traderStatus':
                     data = mes.get('data')
-                    self.pc.getpilotinfo(self.pilot, data)
+                    self.sc_pilotinfo(True, data)
+                    self.wsapp.close()
                 else:
                     pass
 
-        while not self.flClosing:
-            try:
-                self.wsapp = websocket.WebSocketApp("wss://ws.mapi.digitexfutures.com", on_open=on_open,
-                                                    on_close=on_close, on_error=on_error, on_message=on_message)
-                self.wsapp.run_forever()
-            except:
-                pass
-            finally:
-                time.sleep(1)
+        self.wsapp = websocket.WebSocketApp("wss://ws.mapi.digitexfutures.com", on_open=on_open, on_message=on_message)
+        self.wsapp.run_forever()
 
-    def getinfo(self):
-        self.send_privat('getTraderStatus', symbol='BTCUSD-PERP')
-        time.sleep(0.1)
-
-    def close(self):
-        self.flClosing = True
-        self.wsapp.close()
+    def sc_pilotinfo(self, statusauth, data=None):
+        if statusauth:
+            status = 1
+            balance = data.get('traderBalance')
+        else:
+            status = 0
+            balance = 0
+        pilot_info = {'name':self.name, 'ak':self.ak, 'status':status, 'balance':balance}
+        self.selfconnector.sc_pilotinfo(self.pilot, pilot_info)
 
     def send_privat(self, method, **params):
         pd = {'id': 0, 'method': method, 'params': params}

@@ -89,11 +89,6 @@ class MainWindow(QMainWindow, UiMainWindow):
         ak_enc = AES.new(key, AES.MODE_CFB, iv).decrypt(en_ak_byte[SALT_SIZE:]).decode('utf-8')
         return ak_enc
 
-    def getpilotinfo(self, pilot, data):
-        balance = data.get('traderBalance')
-        info = {'name':self.pilots[pilot]['name'], 'ak':self.pilots[pilot]['ak'], 'balance':balance}
-        self.selfconnector.pilot_info(pilot, info)
-
     def fillpilots(self):
         q1 = QSqlQuery(self.db)
         q1.prepare('SELECT login, name, apikey FROM pilots')
@@ -102,11 +97,9 @@ class MainWindow(QMainWindow, UiMainWindow):
             login = q1.value(0)
             name = q1.value(1)
             ak = self.getak(q1.value(2))
-            dgtxbalance = DGTXBalance(self, login, ak)
+            dgtxbalance = DGTXBalance(self.selfconnector, login, name, ak)
             dgtxbalance.daemon = True
             dgtxbalance.start()
-            self.pilots[login] = {'name': name, 'ak': ak, 'agent': dgtxbalance}
-            self.timer.pilotadd(login, dgtxbalance)
 
     def fillexpanses(self):
         for expanse in self.expanses.keys():
@@ -125,10 +118,6 @@ class MainWindow(QMainWindow, UiMainWindow):
             self.wssserver = WSSServer(self)
             self.wssserver.daemon = True
             self.wssserver.start()
-
-            self.timer = Timer()
-            self.timer.daemon = True
-            self.timer.start()
 
             self.selfconnector = SelfConnector(self)
             self.selfconnector.daemon = True
@@ -166,7 +155,7 @@ class MainWindow(QMainWindow, UiMainWindow):
         self.lock.release()
         market_volatility_128 = round(np.mean(ar), 3)
         info = {'symbol': symbol, 'market_volatility_128': market_volatility_128}
-        self.selfconnector.market_info(info)
+        self.selfconnector.sc_marketinfo(info)
 
 
 app = QApplication([])
