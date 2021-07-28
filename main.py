@@ -9,8 +9,6 @@ from mainWindow import UiMainWindow
 from wssserver import WSSServer
 from dgtxindex import DGTXIndex
 from dgtxbalance import DGTXBalance
-from timer import Timer
-from analizator import Analizator
 from selfconnector import SelfConnector
 from threading import Lock
 from loginWindow import LoginWindow
