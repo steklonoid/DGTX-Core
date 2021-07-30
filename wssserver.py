@@ -53,8 +53,10 @@ class WSSServer(Thread):
         #   ----------------------------------------------------------------------------------------------------------------
 
         async def rocket_change(rocket_websocket, parameters=None, info=None):
-            self.rockets[rocket_websocket]['parameters'] = parameters
-            self.rockets[rocket_websocket]['info'] = info
+            if parameters:
+                self.rockets[rocket_websocket]['parameters'] = parameters
+            if info:
+                self.rockets[rocket_websocket]['info'] = info
             await sendrockettoall(rocket_websocket)
 
         async def rocket_delete(rocket_websocket):
@@ -133,10 +135,11 @@ class WSSServer(Thread):
             str = json.dumps(str)
             await asyncio.wait([websocket_rocket.send(str)])
 
-        async def mc_setparameters(rocket, parameters):
+        async def mc_setparameters(rocket_id, parameters):
+            websocket_rocket = [k for k, v in self.connections.items() if v['id'] == rocket_id][0]
             data = {'message_type': 'cb', 'data': {'command': 'cb_setparameters', 'parameters': parameters}}
             data = json.dumps(data)
-            await asyncio.wait([rocket.send(data)])
+            await asyncio.wait([websocket_rocket.send(data)])
 
         #   ----------------------------------------------------------------------------------------------------------------
 
