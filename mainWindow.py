@@ -1,9 +1,7 @@
 # модуль главного окна
-from PyQt5.QtCore import Qt, pyqtSlot, QRectF
-from PyQt5.QtWidgets import QWidget, QGridLayout, QStatusBar, QHBoxLayout, QPushButton, QLabel, QSplitter, QOpenGLWidget, QSizePolicy, QGroupBox, QTableView, QAbstractItemView, QHeaderView, QCheckBox
-from PyQt5.QtGui import QIcon, QPainter, QStandardItemModel, QStandardItem, QPen, QColor, QFont, QPainterPath, QMouseEvent
-from OpenGL import GL
-import time
+from PyQt5.QtCore import Qt
+from PyQt5.QtWidgets import QWidget, QGridLayout, QPushButton, QStatusBar
+
 
 class UiMainWindow(object):
     def __init__(self):
@@ -29,3 +27,6 @@ class UiMainWindow(object):
         self.pb_enter.setCursor(Qt.PointingHandCursor)
         self.gridLayout.addWidget(self.pb_enter, 0, 0, 1, 1)
         self.pb_enter.clicked.connect(self.buttonLogin_clicked)
+
+        self.statusbar = QStatusBar()
+        mainwindow.setStatusBar(self.statusbar)

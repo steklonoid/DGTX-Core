@@ -1,33 +1,37 @@
 import sys
 import os
 import logging
+import queue
+import time
 
 from PyQt5.QtWidgets import QMainWindow, QApplication, QMessageBox
 from PyQt5.QtCore import QSettings, pyqtSlot
 from PyQt5.QtSql import QSqlDatabase, QSqlQuery
 from mainWindow import UiMainWindow
+
 from wssserver import WSSServer
-from dgtxindex import DGTXIndex
-from dgtxbalance import DGTXBalance
-from selfconnector import SelfConnector
+from wssclient import WSSClient, FromQToF
+
 from threading import Lock
 from loginWindow import LoginWindow
 import bcrypt   #pip install bcrypt
 import hashlib
-from Crypto.Cipher import AES # pip install pycryptodome
+from Cryptodome.Cipher import AES # pip install pycryptodome
 import numpy as np
 
 
 NUMTICKS = 128
 
 class MainWindow(QMainWindow, UiMainWindow):
-    version = '1.0.7'
+    version = '1.1.2'
     settings = QSettings("./config.ini", QSettings.IniFormat)   # файл настроек
     lock = Lock()
 
     hashpsw = {}
     pilots = {}
     rockets = {}
+
+    rel = {'.DGTXBTCUSD':'BTCUSD-PERP', '.DGTXETHUSD':'ETHUSD-PERP'}
     expanses = {'BTCUSD-PERP':np.ndarray(shape=(NUMTICKS, 1), dtype=float), 'ETHUSD-PERP':np.ndarray(shape=(NUMTICKS, 1), dtype=float)}
 
     psw = None
@@ -87,23 +91,17 @@ class MainWindow(QMainWindow, UiMainWindow):
         ak_enc = AES.new(key, AES.MODE_CFB, iv).decrypt(en_ak_byte[SALT_SIZE:]).decode('utf-8')
         return ak_enc
 
-    def fillpilots(self):
-        q1 = QSqlQuery(self.db)
-        q1.prepare('SELECT login, name, apikey FROM pilots')
-        q1.exec_()
-        while q1.next():
-            login = q1.value(0)
-            name = q1.value(1)
-            ak = self.getak(q1.value(2))
-            dgtxbalance = DGTXBalance(self.selfconnector, login, name, ak)
-            dgtxbalance.daemon = True
-            dgtxbalance.start()
-
-    def fillexpanses(self):
-        for expanse in self.expanses.keys():
-            dgtxindex = DGTXIndex(self, expanse)
-            dgtxindex.daemon = True
-            dgtxindex.start()
+    # def fillpilots(self):
+    #     q1 = QSqlQuery(self.db)
+    #     q1.prepare('SELECT login, name, apikey FROM pilots')
+    #     q1.exec_()
+    #     while q1.next():
+    #         login = q1.value(0)
+    #         name = q1.value(1)
+    #         ak = self.getak(q1.value(2))
+    #         dgtxbalance = DGTXBalance(self.corereceiver, login, name, ak)
+    #         dgtxbalance.daemon = True
+    #         dgtxbalance.start()
 
     def checkpsw(self, psw):
         if bcrypt.checkpw(psw.encode('utf-8'), self.hashpsw['core'].encode('utf-8')):
@@ -117,16 +115,90 @@ class MainWindow(QMainWindow, UiMainWindow):
             self.wssserver.daemon = True
             self.wssserver.start()
 
-            self.selfconnector = SelfConnector(self)
-            self.selfconnector.daemon = True
-            self.selfconnector.start()
+            # -----------------------------------------------------------------------
 
-            self.fillexpanses()
+            corereceiveq = queue.Queue()
 
-            self.fillpilots()
+            self.wsscore = WSSClient(corereceiveq, "ws://localhost:16789")
+            self.wsscore.daemon = True
+            self.wsscore.start()
+
+            while not self.wsscore.flConnect:
+                self.statusbar.showMessage('Ждем подключения к ядру')
+                time.sleep(1)
+            self.statusbar.showMessage('Есть подключение к ядру')
+
+            self.corereceiver = FromQToF(self.receivemessagefromcore, corereceiveq)
+            self.corereceiver.daemon = True
+            self.corereceiver.start()
+
+            self.coresendq = queue.Queue()
+
+            self.coresender = FromQToF(self.wsscore.send, self.coresendq)
+            self.coresender.daemon = True
+            self.coresender.start()
+
+            # -----------------------------------------------------------------------
+
+            dgtxreceiveq = queue.Queue()
+
+            self.wssdgtx = WSSClient(dgtxreceiveq, "wss://ws.mapi.digitexfutures.com")
+            self.wssdgtx.daemon = True
+            self.wssdgtx.start()
+
+            while not self.wssdgtx.flConnect:
+                self.statusbar.showMessage('Ждем подключения к DGTX')
+                time.sleep(1)
+            self.statusbar.showMessage('Есть подключение к DGTX')
+
+            self.dgtxreceiver = FromQToF(self.receivemessagefromdgtx, dgtxreceiveq)
+            self.dgtxreceiver.daemon = True
+            self.dgtxreceiver.start()
+
+            self.dgtxsendq = queue.Queue()
+
+            self.dgtxsender = FromQToF(self.wssdgtx.send, self.dgtxsendq)
+            self.dgtxsender.daemon = True
+            self.dgtxsender.start()
+
+            # -----------------------------------------------------------------------
+            params = []
+            for expanse in self.expanses.keys():
+                params.append(expanse + '@index')
+            data = {'id':1, 'method':'subscribe', 'params':params}
+            self.dgtxsendq.put(data)
+            # ----------------------------------------------------------------------
+            q1 = QSqlQuery(self.db)
+            q1.prepare('SELECT login, name, apikey FROM pilots')
+            q1.exec_()
+            while q1.next():
+                login = q1.value(0)
+                name = q1.value(1)
+                ak = self.getak(q1.value(2))
+                data = {'message_type': 'sc', 'data': {'command':'sc_pilotinfo', 'pilot':login, 'info':{'name':name, 'ak':ak, 'status':1, 'balance':0}}}
+                self.coresendq.put(data)
         else:
             self.pb_enter.setText('вход не выполнен')
             self.pb_enter.setStyleSheet("color:rgb(255, 96, 96); font: bold 12px;border: none")
+
+    def receivemessagefromcore(self, mes):
+        message_type = mes.get('message_type')
+        data = mes.get('data')
+        if message_type == 'cs':
+            command = data.get('command')
+            if command == 'cs_pilotadd':
+                pass
+            elif command == 'cs_pilotdelete':
+                pass
+            else:
+                pass
+
+    def receivemessagefromdgtx(self, mes):
+        ch = mes.get('ch')
+        if ch == 'index':
+            data = mes.get('data')
+            indexSymbol = data.get('indexSymbol')
+            self.dgtxindex(self.rel.get(indexSymbol), data.get('spotPx'))
 
     @pyqtSlot()
     def buttonLogin_clicked(self):
@@ -153,7 +225,7 @@ class MainWindow(QMainWindow, UiMainWindow):
         self.lock.release()
         market_volatility_128 = round(np.mean(ar), 3)
         info = {'symbol': symbol, 'market_volatility_128': market_volatility_128}
-        self.selfconnector.sc_marketinfo(info)
+        self.corereceiver.sc_marketinfo(info)
 
 
 app = QApplication([])

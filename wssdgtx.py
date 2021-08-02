@@ -6,26 +6,26 @@ import logging
 
 
 #   получает цены по инсрументу
-class DGTXIndex(Thread):
+class WSSDGTX(Thread):
 
-    def __init__(self, pc, ex):
-        super(DGTXIndex, self).__init__()
-        self.pc = pc
-        self.ex = ex
-        self.flClosing = False
-        self.tickcounter = 0
-        self.lasttime = 0
+    def __init__(self, q):
+        super(WSSDGTX, self).__init__()
+        self.q = q
+        self.flConnect = False
 
     def run(self) -> None:
         def on_open(wsapp):
             logging.info(self.ex + ' ' + 'Соединение с DGTX установлено')
-            self.send_public('subscribe', self.ex + '@index')
+            self.flConnect = True
+            # self.send_public('subscribe', self.ex + '@index')
 
         def on_close(wsapp, close_status_code, close_msg):
             logging.info(self.ex + ' close / ' + str(close_status_code) + ' / ' + str(close_msg))
+            self.flConnect = False
 
         def on_error(wsapp, error):
             logging.info(self.ex + ' ' + 'Ошибка соединения с DGTX')
+            self.flConnect = False
             time.sleep(1)
 
         def on_message(wssapp, message):
@@ -33,6 +33,7 @@ class DGTXIndex(Thread):
                 wssapp.send('pong')
             else:
                 mes = json.loads(message)
+                self.q.put(mes)
                 ch = mes.get('ch')
                 if ch == 'index':
                     self.tickcounter += 1
