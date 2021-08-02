@@ -21,7 +21,7 @@ import numpy as np
 NUMTICKS = 128
 
 class MainWindow(QMainWindow, UiMainWindow):
-    version = '1.0.7'
+    version = '1.1.1'
     settings = QSettings("./config.ini", QSettings.IniFormat)   # файл настроек
     lock = Lock()
 
@@ -47,7 +47,7 @@ class MainWindow(QMainWindow, UiMainWindow):
                 return False
 
         super().__init__()
-        logging.basicConfig(filename='info.log', level=logging.INFO, format='%(asctime)s %(message)s')
+        logging.basicConfig(filename='info.log', level=logging.CRITICAL, format='%(asctime)s %(message)s')
         #  подключаем базу SQLite
         self.db = QSqlDatabase.addDatabase("QSQLITE", 'maindb')
         if not opendb():

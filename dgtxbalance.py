@@ -1,8 +1,6 @@
 from threading import Thread
 import websocket
 import json
-import time
-import logging
 from threading import Lock
 
 
