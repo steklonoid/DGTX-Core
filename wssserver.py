@@ -180,6 +180,7 @@ class WSSServer(Thread):
                                 rocket = data.get('rocket')
                                 await mc_authpilot(pilot, rocket)
                         elif command == 'mc_setparameters':
+                            print(mes)
                             if self.managers.get(websocket):
                                 parameters = data.get('parameters')
                                 rocket = data.get('rocket')
@@ -199,6 +200,7 @@ class WSSServer(Thread):
                                     pilot = data.get('pilot')
                                     await bc_authpilot(pilot, websocket)
                         elif command == 'bc_raceinfo':
+                            print(mes)
                             if self.rockets.get(websocket):
                                 parameters = data.get('parameters')
                                 info = data.get('info')
