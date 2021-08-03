@@ -21,22 +21,25 @@ class DGTXBalance(Thread):
 
         def on_message(wssapp, message):
             if message == 'ping':
-                wssapp.send('pong')
+                pass
+                # wssapp.send('pong')
             else:
                 mes = json.loads(message)
                 ch = mes.get('ch')
                 if ch == 'tradingStatus':
                     data = mes.get('data')
                     available = data.get('available')
-                    if available:
-                        self.send_privat('getTraderStatus', symbol='BTCUSD-PERP')
-                    else:
-                        self.sc_pilotinfo(False)
-                        self.wsapp.close()
+                    # if available:
+                    #     self.send_privat('getTraderStatus', symbol='BTCUSD-PERP')
+                    # else:
+                    #     self.sc_pilotinfo(False)
+                        # self.wsapp.close()
+                        # sys.exit()
                 elif ch == 'traderStatus':
                     data = mes.get('data')
-                    self.sc_pilotinfo(True, data)
-                    self.wsapp.close()
+                    # self.sc_pilotinfo(True, data)
+                    # self.wsapp.close()
+                    # sys.exit()
                 else:
                     pass
 
