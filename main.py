@@ -2,7 +2,6 @@ import sys
 import os
 import logging
 import queue
-import time
 
 from PyQt5.QtWidgets import QMainWindow, QApplication, QMessageBox
 from PyQt5.QtCore import QSettings, pyqtSlot
@@ -10,7 +9,7 @@ from PyQt5.QtSql import QSqlDatabase, QSqlQuery
 from mainWindow import UiMainWindow
 
 from wssserver import WSSServer
-from wssclient import WSSClient, FromQToF
+from wssclient import WSSClient, FromQToF, TimeToF
 
 from threading import Lock
 from loginWindow import LoginWindow
@@ -19,11 +18,11 @@ import hashlib
 from Cryptodome.Cipher import AES # pip install pycryptodome
 import numpy as np
 
-
 NUMTICKS = 128
 
+
 class MainWindow(QMainWindow, UiMainWindow):
-    version = '1.1.2'
+    version = '1.1.3'
     settings = QSettings("./config.ini", QSettings.IniFormat)   # файл настроек
     lock = Lock()
 
@@ -32,7 +31,7 @@ class MainWindow(QMainWindow, UiMainWindow):
     rockets = {}
 
     rel = {'.DGTXBTCUSD':'BTCUSD-PERP', '.DGTXETHUSD':'ETHUSD-PERP'}
-    expanses = {'BTCUSD-PERP':np.ndarray(shape=(NUMTICKS, 1), dtype=float), 'ETHUSD-PERP':np.ndarray(shape=(NUMTICKS, 1), dtype=float)}
+    expanses = {'BTCUSD-PERP':np.zeros(shape=(NUMTICKS, 1), dtype=float), 'ETHUSD-PERP':np.zeros(shape=(NUMTICKS, 1), dtype=float)}
 
     psw = None
 
@@ -91,18 +90,6 @@ class MainWindow(QMainWindow, UiMainWindow):
         ak_enc = AES.new(key, AES.MODE_CFB, iv).decrypt(en_ak_byte[SALT_SIZE:]).decode('utf-8')
         return ak_enc
 
-    # def fillpilots(self):
-    #     q1 = QSqlQuery(self.db)
-    #     q1.prepare('SELECT login, name, apikey FROM pilots')
-    #     q1.exec_()
-    #     while q1.next():
-    #         login = q1.value(0)
-    #         name = q1.value(1)
-    #         ak = self.getak(q1.value(2))
-    #         dgtxbalance = DGTXBalance(self.corereceiver, login, name, ak)
-    #         dgtxbalance.daemon = True
-    #         dgtxbalance.start()
-
     def checkpsw(self, psw):
         if bcrypt.checkpw(psw.encode('utf-8'), self.hashpsw['core'].encode('utf-8')):
             #   если пароль прошел проверку
@@ -123,11 +110,6 @@ class MainWindow(QMainWindow, UiMainWindow):
             self.wsscore.daemon = True
             self.wsscore.start()
 
-            while not self.wsscore.flConnect:
-                self.statusbar.showMessage('Ждем подключения к ядру')
-                time.sleep(1)
-            self.statusbar.showMessage('Есть подключение к ядру')
-
             self.corereceiver = FromQToF(self.receivemessagefromcore, corereceiveq)
             self.corereceiver.daemon = True
             self.corereceiver.start()
@@ -146,11 +128,6 @@ class MainWindow(QMainWindow, UiMainWindow):
             self.wssdgtx.daemon = True
             self.wssdgtx.start()
 
-            while not self.wssdgtx.flConnect:
-                self.statusbar.showMessage('Ждем подключения к DGTX')
-                time.sleep(1)
-            self.statusbar.showMessage('Есть подключение к DGTX')
-
             self.dgtxreceiver = FromQToF(self.receivemessagefromdgtx, dgtxreceiveq)
             self.dgtxreceiver.daemon = True
             self.dgtxreceiver.start()
@@ -160,23 +137,9 @@ class MainWindow(QMainWindow, UiMainWindow):
             self.dgtxsender = FromQToF(self.wssdgtx.send, self.dgtxsendq)
             self.dgtxsender.daemon = True
             self.dgtxsender.start()
-
             # -----------------------------------------------------------------------
-            params = []
-            for expanse in self.expanses.keys():
-                params.append(expanse + '@index')
-            data = {'id':1, 'method':'subscribe', 'params':params}
-            self.dgtxsendq.put(data)
-            # ----------------------------------------------------------------------
-            q1 = QSqlQuery(self.db)
-            q1.prepare('SELECT login, name, apikey FROM pilots')
-            q1.exec_()
-            while q1.next():
-                login = q1.value(0)
-                name = q1.value(1)
-                ak = self.getak(q1.value(2))
-                data = {'message_type': 'sc', 'data': {'command':'sc_pilotinfo', 'pilot':login, 'info':{'name':name, 'ak':ak, 'status':1, 'balance':0}}}
-                self.coresendq.put(data)
+            self.timetof = TimeToF(self.market_analizator, 1)
+            self.timetof.daemon = True
         else:
             self.pb_enter.setText('вход не выполнен')
             self.pb_enter.setStyleSheet("color:rgb(255, 96, 96); font: bold 12px;border: none")
@@ -192,6 +155,18 @@ class MainWindow(QMainWindow, UiMainWindow):
                 pass
             else:
                 pass
+        elif message_type == 'on_open':
+            self.timetof.start()
+            q1 = QSqlQuery(self.db)
+            q1.prepare('SELECT login, name, apikey FROM pilots')
+            q1.exec_()
+            while q1.next():
+                login = q1.value(0)
+                name = q1.value(1)
+                ak = self.getak(q1.value(2))
+                data = {'message_type': 'sc', 'data': {'command': 'sc_pilotinfo', 'pilot': login,
+                                                       'info': {'name': name, 'ak': ak, 'status': 1, 'balance': 0}}}
+                self.coresendq.put(data)
 
     def receivemessagefromdgtx(self, mes):
         ch = mes.get('ch')
@@ -199,6 +174,12 @@ class MainWindow(QMainWindow, UiMainWindow):
             data = mes.get('data')
             indexSymbol = data.get('indexSymbol')
             self.dgtxindex(self.rel.get(indexSymbol), data.get('spotPx'))
+        elif ch == 'on_open':
+            params = []
+            for expanse in self.expanses.keys():
+                params.append(expanse + '@index')
+            data = {'id': 1, 'method': 'subscribe', 'params': params}
+            self.dgtxsendq.put(data)
 
     @pyqtSlot()
     def buttonLogin_clicked(self):
@@ -218,14 +199,15 @@ class MainWindow(QMainWindow, UiMainWindow):
         self.expanses[symbol] = res
         self.lock.release()
 
-    def market_analizator(self, symbol):
-        self.lock.acquire()
-        ar = np.array(self.expanses[symbol])
-        ar = np.absolute(ar[1:] - ar[:-1])
-        self.lock.release()
-        market_volatility_128 = round(np.mean(ar), 3)
-        info = {'symbol': symbol, 'market_volatility_128': market_volatility_128}
-        self.corereceiver.sc_marketinfo(info)
+    def market_analizator(self):
+        for expanse in self.expanses.keys():
+            self.lock.acquire()
+            ar = np.array(self.expanses[expanse])
+            self.lock.release()
+            ar = np.absolute(ar[1:] - ar[:-1])
+            market_volatility_128 = round(np.mean(ar), 3)
+            data = {'message_type': 'sc', 'data': {'command': 'sc_marketinfo', 'info': {'symbol': expanse, 'market_volatility_128': market_volatility_128}}}
+            self.coresendq.put(data)
 
 
 app = QApplication([])

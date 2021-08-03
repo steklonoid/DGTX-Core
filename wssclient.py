@@ -14,11 +14,11 @@ class WSSClient(Thread):
 
     def run(self) -> None:
         def on_open(wsapp):
-            print(self.address, 'open')
             self.flConnect = True
+            data = {'message_type':'on_open', 'ch':'on_open'}
+            self.q.put(data)
 
         def on_close(wsapp, close_status_code, close_msg):
-            print(self.address, 'close')
             self.flConnect = False
 
         def on_error(wsapp, error):
@@ -41,12 +41,7 @@ class WSSClient(Thread):
             finally:
                 time.sleep(1)
 
-    # def sc_marketinfo(self, info):
-    #     str = {'command':'sc_marketinfo', 'info':info}
-    #     self.send_sc(str)
-
     def send(self, data):
-        # str = {'message_type':'sc', 'data':data}
         str = json.dumps(data)
         self.wsapp.send(str)
 
@@ -62,3 +57,16 @@ class FromQToF(Thread):
         while True:
             data = self.q.get()
             self.f(data)
+
+
+class TimeToF(Thread):
+
+    def __init__(self, f, delay):
+        super(TimeToF, self).__init__()
+        self.f = f
+        self.delay = delay
+
+    def run(self) -> None:
+        while True:
+            self.f()
+            time.sleep(self.delay)
