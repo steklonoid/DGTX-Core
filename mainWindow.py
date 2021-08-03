@@ -1,6 +1,6 @@
 # модуль главного окна
 from PyQt5.QtCore import Qt
-from PyQt5.QtWidgets import QWidget, QGridLayout, QPushButton, QStatusBar
+from PyQt5.QtWidgets import QWidget, QGridLayout, QPushButton, QStatusBar, QLineEdit
 
 
 class UiMainWindow(object):
@@ -27,6 +27,11 @@ class UiMainWindow(object):
         self.pb_enter.setCursor(Qt.PointingHandCursor)
         self.gridLayout.addWidget(self.pb_enter, 0, 0, 1, 1)
         self.pb_enter.clicked.connect(self.buttonLogin_clicked)
+
+        self.le_serveraddress = QLineEdit()
+        self.gridLayout.addWidget(self.le_serveraddress, 1, 0, 1, 1)
+        self.le_serverport = QLineEdit()
+        self.gridLayout.addWidget(self.le_serverport, 1, 1, 1, 1)
 
         self.statusbar = QStatusBar()
         mainwindow.setStatusBar(self.statusbar)

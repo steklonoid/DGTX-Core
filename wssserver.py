@@ -222,7 +222,7 @@ class WSSServer(Thread):
 
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
-        start_server = websockets.serve(mainroutine, "localhost", 16789)
+        start_server = websockets.serve(mainroutine, self.pc.le_serveraddress.text(), int(self.pc.le_serverport.text()))
         loop.run_until_complete(start_server)
         loop.run_forever()
 

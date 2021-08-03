@@ -106,7 +106,9 @@ class MainWindow(QMainWindow, UiMainWindow):
 
             corereceiveq = queue.Queue()
 
-            self.wsscore = WSSClient(corereceiveq, "ws://localhost:16789")
+            serveraddress = 'ws://'+self.le_serveraddress.text()+':'+self.le_serverport.text()
+            # print(serveraddress)
+            self.wsscore = WSSClient(corereceiveq, serveraddress)
             self.wsscore.daemon = True
             self.wsscore.start()
 
