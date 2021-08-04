@@ -142,6 +142,7 @@ class MainWindow(QMainWindow, UiMainWindow):
             # -----------------------------------------------------------------------
             self.timetof = TimeToF(self.market_analizator, 1)
             self.timetof.daemon = True
+            self.timetof.start()
         else:
             self.pb_enter.setText('вход не выполнен')
             self.pb_enter.setStyleSheet("color:rgb(255, 96, 96); font: bold 12px;border: none")
@@ -158,7 +159,6 @@ class MainWindow(QMainWindow, UiMainWindow):
             else:
                 pass
         elif message_type == 'on_open':
-            self.timetof.start()
             q1 = QSqlQuery(self.db)
             q1.prepare('SELECT login, name, apikey FROM pilots')
             q1.exec_()
@@ -202,14 +202,15 @@ class MainWindow(QMainWindow, UiMainWindow):
         self.lock.release()
 
     def market_analizator(self):
-        for expanse in self.expanses.keys():
-            self.lock.acquire()
-            ar = np.array(self.expanses[expanse])
-            self.lock.release()
-            ar = np.absolute(ar[1:] - ar[:-1])
-            market_volatility_128 = round(np.mean(ar), 3)
-            data = {'message_type': 'sc', 'data': {'command': 'sc_marketinfo', 'info': {'symbol': expanse, 'market_volatility_128': market_volatility_128}}}
-            self.coresendq.put(data)
+        if self.wsscore.flConnect:
+            for expanse in self.expanses.keys():
+                self.lock.acquire()
+                ar = np.array(self.expanses[expanse])
+                self.lock.release()
+                ar = np.absolute(ar[1:] - ar[:-1])
+                market_volatility_128 = round(np.mean(ar), 3)
+                data = {'message_type': 'sc', 'data': {'command': 'sc_marketinfo', 'info': {'symbol': expanse, 'market_volatility_128': market_volatility_128}}}
+                self.coresendq.put(data)
 
 
 app = QApplication([])
