@@ -21,9 +21,8 @@ class WSSServer(Thread):
     def run(self) -> None:
 
         async def sendpilottoall(pilot):
-            info = self.pilots[pilot]
-            pilot_info = {'name': info['name'], 'status': info['status'], 'balance': info['balance']}
-            data = {'command': 'cm_pilotinfo', 'pilot': pilot, 'info':pilot_info}
+            pilot_data = self.pilots[pilot]
+            data = {'command': 'cm_pilotinfo', 'pilot': pilot, 'name':pilot_data['name'], 'status':pilot_data['status'], 'balance':pilot_data['balance'], 'info':pilot_data['info'], 'parameters':pilot_data['parameters']}
             str = {'message_type': 'cm', 'data': data}
             str = json.dumps(str)
             for manager_websocket in self.managers.keys():
@@ -39,7 +38,7 @@ class WSSServer(Thread):
         #   ----------------------------------------------------------------------------------------------------------------
 
         async def register(websocket):
-            self.connections[websocket] = {'id':str(int(time.time()*10000000)), 'ts':time.time(), 'type':'wait'}
+            self.connections[websocket] = {'ts':time.time(), 'type':'wait'}
 
         async def unregister(websocket):
             if self.managers.get(websocket):
@@ -70,10 +69,10 @@ class WSSServer(Thread):
             for manager_websocket in self.managers.keys():
                 await asyncio.wait([manager_websocket.send(data)])
 
-        async def register_rocket(rocket_websocket, psw, version):
+        async def register_rocket(rocket_websocket, psw):
             if not self.rockets.get(rocket_websocket):
                 if bcrypt.checkpw(psw.encode('utf-8'), self.pc.hashpsw['rocket'].encode('utf-8')):
-                    self.rockets[rocket_websocket] = {'version':version, 'status':0, 'pilot':None, 'parameters':{}, 'info':{}}
+                    self.rockets[rocket_websocket] = None
                     self.connections[rocket_websocket]['type'] = 'rocket'
                     data = {'message_type':'cb', 'data':{'command':'cb_registration', 'status':'ok'}}
                     await rocket_change(rocket_websocket)
@@ -93,8 +92,8 @@ class WSSServer(Thread):
             for websocket in self.managers.keys():
                 await asyncio.wait([websocket.send(managers_data)])
 
-            for rocket_websocket in self.rockets.keys():
-                await sendrockettoall(rocket_websocket)
+            # for rocket_websocket in self.rockets.keys():
+            #     await sendrockettoall(rocket_websocket)
 
             for pilot in self.pilots.keys():
                 await sendpilottoall(pilot)
@@ -117,7 +116,6 @@ class WSSServer(Thread):
 
         async def bc_authpilot(pilot, rocket_websocket):
             self.pilots[pilot]['status'] = 2
-            self.rockets[rocket_websocket]['status'] = 1
             self.rockets[rocket_websocket]['pilot'] = pilot
             await sendpilottoall(pilot)
             await sendrockettoall(rocket_websocket)
@@ -143,8 +141,8 @@ class WSSServer(Thread):
 
         #   ----------------------------------------------------------------------------------------------------------------
 
-        async def sc_pilotinfo(pilot, info):
-            self.pilots[pilot] = info
+        async def sc_pilotinfo(pilot, name, ak, balance):
+            self.pilots[pilot] = {'name':name, 'ak':ak, 'status':0, 'balance':balance, 'info':None, 'parameters':None}
             await sendpilottoall(pilot)
 
         async def sc_marketinfo(info):
@@ -170,6 +168,7 @@ class WSSServer(Thread):
                     if message_type == 'mc':
                         command = data.get('command')
                         if command == 'mc_registration':
+                            print(mes)
                             user = data.get('user')
                             psw = data.get('psw')
                             await register_manager(websocket, user, psw)
@@ -189,8 +188,7 @@ class WSSServer(Thread):
                         command = data.get('command')
                         if command == 'bc_registration':
                             psw = data.get('psw')
-                            version = data.get('version')
-                            await register_rocket(websocket, psw, version)
+                            await register_rocket(websocket, psw)
                         elif command == 'bc_authpilot':
                             if self.rockets.get(websocket):
                                 status = data.get('status')
@@ -208,8 +206,10 @@ class WSSServer(Thread):
                         command = data.get('command')
                         if command == 'sc_pilotinfo':
                             pilot = data.get('pilot')
-                            info = data.get('info')
-                            await sc_pilotinfo(pilot, info)
+                            name = data.get('name')
+                            ak = data.get('ak')
+                            balance = data.get('balance')
+                            await sc_pilotinfo(pilot, name, ak, balance)
                         elif command == 'sc_marketinfo':
                             info = data.get('info')
                             await sc_marketinfo(info)

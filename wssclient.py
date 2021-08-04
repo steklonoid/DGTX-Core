@@ -21,9 +21,6 @@ class WSSClient(Thread):
         def on_close(wsapp, close_status_code, close_msg):
             self.flConnect = False
 
-        def on_error(wsapp, error):
-            self.flConnect = False
-
         def on_message(wssapp, message):
             if message == 'ping':
                 self.wsapp.send('pong')
@@ -34,7 +31,7 @@ class WSSClient(Thread):
         while not self.flClosing:
             try:
                 self.wsapp = websocket.WebSocketApp(self.address, on_open=on_open,
-                                                               on_close=on_close, on_error=on_error, on_message=on_message)
+                                                               on_close=on_close, on_message=on_message)
                 self.wsapp.run_forever()
             except:
                 pass

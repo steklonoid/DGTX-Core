@@ -105,9 +105,7 @@ class MainWindow(QMainWindow, UiMainWindow):
             # -----------------------------------------------------------------------
 
             corereceiveq = queue.Queue()
-
             serveraddress = 'ws://'+self.le_serveraddress.text()+':'+self.le_serverport.text()
-            # print(serveraddress)
             self.wsscore = WSSClient(corereceiveq, serveraddress)
             self.wsscore.daemon = True
             self.wsscore.start()
@@ -117,7 +115,6 @@ class MainWindow(QMainWindow, UiMainWindow):
             self.corereceiver.start()
 
             self.coresendq = queue.Queue()
-
             self.coresender = FromQToF(self.wsscore.send, self.coresendq)
             self.coresender.daemon = True
             self.coresender.start()
@@ -166,8 +163,7 @@ class MainWindow(QMainWindow, UiMainWindow):
                 login = q1.value(0)
                 name = q1.value(1)
                 ak = self.getak(q1.value(2))
-                data = {'message_type': 'sc', 'data': {'command': 'sc_pilotinfo', 'pilot': login,
-                                                       'info': {'name': name, 'ak': ak, 'status': 1, 'balance': 0}}}
+                data = {'message_type': 'sc', 'data': {'command': 'sc_pilotinfo', 'pilot': login, 'name': name, 'ak': ak, 'balance': 0}}
                 self.coresendq.put(data)
 
     def receivemessagefromdgtx(self, mes):
