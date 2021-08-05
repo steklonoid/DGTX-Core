@@ -11,7 +11,7 @@ class UiMainWindow(object):
     def setupui(self, mainwindow):
         mainwindow.setObjectName("MainWindow")
         mainwindow.setWindowTitle('DLM Core v ' + mainwindow.version)
-        mainwindow.resize(320, 120)
+        # mainwindow.resize(320, 120)
 
         self.centralwidget = QWidget(mainwindow)
         self.centralwidget.setObjectName("centralwidget")

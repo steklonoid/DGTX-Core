@@ -140,6 +140,7 @@ class MainWindow(QMainWindow, UiMainWindow):
             self.timetof = TimeToF(self.market_analizator, 1)
             self.timetof.daemon = True
             self.timetof.start()
+
         else:
             self.pb_enter.setText('вход не выполнен')
             self.pb_enter.setStyleSheet("color:rgb(255, 96, 96); font: bold 12px;border: none")
@@ -159,12 +160,14 @@ class MainWindow(QMainWindow, UiMainWindow):
             q1 = QSqlQuery(self.db)
             q1.prepare('SELECT login, name, apikey FROM pilots')
             q1.exec_()
+            pilots = {}
             while q1.next():
                 login = q1.value(0)
                 name = q1.value(1)
                 ak = self.getak(q1.value(2))
-                data = {'message_type': 'sc', 'data': {'command': 'sc_pilotinfo', 'pilot': login, 'name': name, 'ak': ak, 'balance': 0}}
-                self.coresendq.put(data)
+                pilots[login] = {'name':name, 'ak':ak}
+            data = {'message_type': 'sc', 'data': {'command': 'sc_pilotsinfo', 'pilots': pilots}}
+            self.coresendq.put(data)
 
     def receivemessagefromdgtx(self, mes):
         ch = mes.get('ch')
