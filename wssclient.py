@@ -14,6 +14,7 @@ class WSSClient(Thread):
 
     def run(self) -> None:
         def on_open(wsapp):
+            print(self.address, 'open')
             self.flConnect = True
             data = {'command':'on_open', 'ch':'on_open'}
             self.q.put(data)
