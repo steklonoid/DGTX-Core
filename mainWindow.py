@@ -1,6 +1,6 @@
 # модуль главного окна
 from PyQt5.QtCore import Qt
-from PyQt5.QtWidgets import QWidget, QGridLayout, QPushButton, QStatusBar, QLineEdit
+from PyQt5.QtWidgets import QWidget, QGridLayout, QPushButton, QStatusBar, QLabel
 
 
 class UiMainWindow(object):
@@ -11,7 +11,7 @@ class UiMainWindow(object):
     def setupui(self, mainwindow):
         mainwindow.setObjectName("MainWindow")
         mainwindow.setWindowTitle('DLM Core v ' + mainwindow.version)
-        mainwindow.resize(320, 120)
+        # mainwindow.resize(320, 120)
 
         self.centralwidget = QWidget(mainwindow)
         self.centralwidget.setObjectName("centralwidget")
@@ -28,10 +28,10 @@ class UiMainWindow(object):
         self.gridLayout.addWidget(self.pb_enter, 0, 0, 1, 1)
         self.pb_enter.clicked.connect(self.buttonLogin_clicked)
 
-        self.le_serveraddress = QLineEdit()
-        self.gridLayout.addWidget(self.le_serveraddress, 1, 0, 1, 1)
-        self.le_serverport = QLineEdit()
-        self.gridLayout.addWidget(self.le_serverport, 1, 1, 1, 1)
+        self.l_serveraddress = QLabel(mainwindow.serveraddress)
+        self.gridLayout.addWidget(self.l_serveraddress, 1, 0, 1, 1)
+        self.l_serverport = QLabel(mainwindow.serverport)
+        self.gridLayout.addWidget(self.l_serverport, 1, 1, 1, 1)
 
         self.statusbar = QStatusBar()
         mainwindow.setStatusBar(self.statusbar)

@@ -6,13 +6,22 @@ import websockets
 import asyncio
 
 
+class Pilot():
+
+    def __init__(self, name, ak, rocket=None, authstate=0, info=None, parameters=None):
+        self.name = name
+        self.ak = ak
+        self.rocket = rocket
+        self.authstate = authstate
+        self.info = info
+        self.parameters = parameters
+
+
 class WSSServer(Thread):
 
     connections = {}
     managers = {}
-    rockets = {}
     pilots = {}
-    marketinfo = {}
 
     def __init__(self, pc):
         super(WSSServer, self).__init__()
@@ -20,80 +29,44 @@ class WSSServer(Thread):
 
     def run(self) -> None:
 
-        async def sendpilottoall(pilot):
-            pilot_data = self.pilots[pilot]
-            data = {'command': 'cm_pilotinfo', 'pilot': pilot, 'name':pilot_data['name'], 'status':pilot_data['status'], 'balance':pilot_data['balance'], 'info':pilot_data['info'], 'parameters':pilot_data['parameters']}
-            str = {'message_type': 'cm', 'data': data}
-            str = json.dumps(str)
+        async def sendpilottoall(login):
+            pilot = self.pilots[login]
+            data = {'command': 'cm_pilotinfo', 'pilot': login, 'name':pilot.name, 'authstate':pilot.authstate, 'info':pilot.info, 'parameters':pilot.parameters}
+            str = json.dumps(data)
             for manager_websocket in self.managers.keys():
                 await asyncio.wait([manager_websocket.send(str)])
 
-        async def sendrockettoall(rocket_websocket):
-            rocket_data = {self.connections[rocket_websocket]['id']: self.rockets[rocket_websocket]}
-            data = {'command': 'cm_rocketinfo', 'rocket': rocket_data}
-            str = {'message_type': 'cm', 'data': data}
-            str = json.dumps(str)
-            for manager_websocket in self.managers.keys():
-                await asyncio.wait([manager_websocket.send(str)])
         #   ----------------------------------------------------------------------------------------------------------------
 
         async def register(websocket):
             self.connections[websocket] = {'ts':time.time(), 'type':'wait'}
 
         async def unregister(websocket):
-            if self.managers.get(websocket):
+            connection = self.connections.get(websocket)
+            if connection['type'] == 'manager':
                 await managers_change()
                 self.managers.pop(websocket, None)
-            if self.rockets.get(websocket):
+            elif connection['type'] == 'rocket':
                 await rocket_delete(websocket)
-                self.rockets.pop(websocket, None)
             self.connections.pop(websocket, None)
 
         #   ----------------------------------------------------------------------------------------------------------------
 
-        async def rocket_change(rocket_websocket, parameters=None, info=None):
-            if parameters:
-                self.rockets[rocket_websocket]['parameters'] = parameters
-            if info:
-                self.rockets[rocket_websocket]['info'] = info
-            await sendrockettoall(rocket_websocket)
-
         async def rocket_delete(rocket_websocket):
-            pilot = self.rockets[rocket_websocket]['pilot']
-            if pilot:
-                self.pilots[pilot]['status'] = 1
-                await sendpilottoall(pilot)
-            id = self.connections[rocket_websocket]['id']
-            data = {'message_type': 'cm', 'data': {'command': 'cm_rocketdelete', 'rocket': id}}
-            data = json.dumps(data)
-            for manager_websocket in self.managers.keys():
-                await asyncio.wait([manager_websocket.send(data)])
-
-        async def register_rocket(rocket_websocket, psw):
-            if not self.rockets.get(rocket_websocket):
-                if bcrypt.checkpw(psw.encode('utf-8'), self.pc.hashpsw['rocket'].encode('utf-8')):
-                    self.rockets[rocket_websocket] = None
-                    self.connections[rocket_websocket]['type'] = 'rocket'
-                    data = {'message_type':'cb', 'data':{'command':'cb_registration', 'status':'ok'}}
-                    await rocket_change(rocket_websocket)
-                else:
-                    data = {'message_type': 'cb', 'data': {'command':'cb_registration', 'status': 'error', 'message': 'Неверный пароль'}}
-            else:
-                data = {'message_type': 'cb', 'data': {'command':'cb_registration', 'status': 'error', 'message':'Есть уже такая ракета'}}
-            str = json.dumps(data)
-            await asyncio.wait([rocket_websocket.send(str)])
+            for login,pilot in self.pilots.items():
+                if pilot.rocket == rocket_websocket:
+                    pilot.rocket = None
+                    await sendpilottoall(login)
+                    break
 
         #   ----------------------------------------------------------------------------------------------------------------
 
         async def managers_change():
-            managers_data = [v['user'] for v in self.managers.values()]
-            managers_data = {'message_type': 'cm', 'data': {'command': 'cm_managersinfo', 'managers': managers_data}}
+            managers_data = [v for v in self.managers.values()]
+            managers_data = {'command': 'cm_managersinfo', 'managers': managers_data}
             managers_data = json.dumps(managers_data)
             for websocket in self.managers.keys():
                 await asyncio.wait([websocket.send(managers_data)])
-
-            # for rocket_websocket in self.rockets.keys():
-            #     await sendrockettoall(rocket_websocket)
 
             for pilot in self.pilots.keys():
                 await sendpilottoall(pilot)
@@ -101,57 +74,67 @@ class WSSServer(Thread):
         async def register_manager(manager_websocket, user, psw):
             if not self.managers.get(manager_websocket):
                 if bcrypt.checkpw(psw.encode('utf-8'), self.pc.hashpsw['manager'].encode('utf-8')):
-                    self.managers[manager_websocket] = {'ts': time.time(), 'user':user}
+                    self.managers[manager_websocket] = user
                     self.connections[manager_websocket]['type'] = 'manager'
-                    str = {'message_type':'cm', 'data':{'command':'cm_registration', 'status':'ok'}}
+                    str = {'command':'cm_registration', 'status':'ok'}
                     await managers_change()
                 else:
-                    str = {'message_type': 'cm', 'data': {'command':'cm_registration', 'status': 'error', 'message': 'Неверный пароль'}}
+                    str = {'command':'cm_registration', 'status': 'error', 'message': 'Неверный пароль'}
             else:
-                str = {'message_type': 'cm', 'data': {'command':'cm_registration', 'status': 'error', 'message':'Есть уже такой менеджер'}}
+                str = {'command':'cm_registration', 'status': 'error', 'message':'Есть уже такой менеджер'}
             str = json.dumps(str)
             await asyncio.wait([manager_websocket.send(str)])
 
         #   ----------------------------------------------------------------------------------------------------------------
+        async def bc_registration(rocket_websocket, psw):
+            if bcrypt.checkpw(psw.encode('utf-8'), self.pc.hashpsw['rocket'].encode('utf-8')):
+                self.connections[rocket_websocket]['type'] = 'rocket'
+                isFreePilot = False
+                for login,pilot in self.pilots.items():
+                    if not pilot.rocket:
+                        isFreePilot = True
+                        self.pilots[login].rocket = rocket_websocket
+                        data = {'command': 'cb_registration', 'status':'ok', 'pilot': login, 'ak': pilot.ak}
+                        break
+                if not isFreePilot:
+                    data = {'command': 'cb_registration', 'status': 'error', 'message': 'Нет свободных пилотов'}
+            else:
+                data = {'command':'cb_registration', 'status': 'error', 'message': 'Неверный пароль'}
+            str = json.dumps(data)
+            await asyncio.wait([rocket_websocket.send(str)])
 
-        async def bc_authpilot(pilot, rocket_websocket):
-            self.pilots[pilot]['status'] = 2
-            self.rockets[rocket_websocket]['pilot'] = pilot
+        async def bc_authpilot(login, status):
+            pilot = self.pilots[login]
+            if status == 'ok':
+                pilot.authstate = 1
+            else:
+                pilot.authstate = 2
             await sendpilottoall(pilot)
-            await sendrockettoall(rocket_websocket)
 
         async def bc_raceinfo(rocket_websocket, parameters, info):
-            await rocket_change(rocket_websocket, parameters, info)
+            pass
 
         #   ----------------------------------------------------------------------------------------------------------------
 
-        async def mc_authpilot(pilot, rocket_id):
-            websocket_rocket = [k for k,v in self.connections.items() if v['id'] == rocket_id][0]
-            ak = self.pilots[pilot]['ak']
-            data = {'command': 'cb_authpilot', 'pilot': pilot, 'ak':ak}
-            str = {'message_type': 'cb', 'data': data}
-            str = json.dumps(str)
-            await asyncio.wait([websocket_rocket.send(str)])
-
         async def mc_setparameters(rocket_id, parameters):
             websocket_rocket = [k for k, v in self.connections.items() if v['id'] == rocket_id][0]
-            data = {'message_type': 'cb', 'data': {'command': 'cb_setparameters', 'parameters': parameters}}
+            data = {'command': 'cb_setparameters', 'parameters': parameters}
             data = json.dumps(data)
             await asyncio.wait([websocket_rocket.send(data)])
 
         #   ----------------------------------------------------------------------------------------------------------------
 
-        async def sc_pilotinfo(pilot, name, ak, balance):
-            self.pilots[pilot] = {'name':name, 'ak':ak, 'status':0, 'balance':balance, 'info':None, 'parameters':None}
-            await sendpilottoall(pilot)
+        async def sc_pilotsinfo(pilots):
+            for login,pilot in pilots.items():
+                self.pilots[login] = Pilot(pilot['name'], pilot['ak'])
 
         async def sc_marketinfo(info):
-            market_data = info
-            data = {'message_type': 'cb', 'data': {'command': 'cb_marketinfo', 'info': market_data}}
+            data = {'command': 'cb_marketinfo', 'info': info}
             data = json.dumps(data)
-            for rocket_websocket in self.rockets.keys():
+            listrw = [v.rocket for v in self.pilots.values() if v.rocket]
+            for rocket_websocket in listrw:
                 await asyncio.wait([rocket_websocket.send(data)])
-            data = {'message_type': 'cm', 'data': {'command': 'cm_marketinfo', 'info': market_data}}
+            data = {'command': 'cm_marketinfo', 'info': info}
             data = json.dumps(data)
             for manager_websocket in self.managers.keys():
                 await asyncio.wait([manager_websocket.send(data)])
@@ -162,67 +145,44 @@ class WSSServer(Thread):
             await register(websocket)
             try:
                 async for message in websocket:
+                    print(message)
                     mes = json.loads(message)
-                    message_type = mes.get('message_type')
-                    data = mes.get('data')
-                    if message_type == 'mc':
-                        command = data.get('command')
-                        if command == 'mc_registration':
-                            print(mes)
-                            user = data.get('user')
-                            psw = data.get('psw')
-                            await register_manager(websocket, user, psw)
-                        elif command == 'mc_authpilot':
-                            if self.managers.get(websocket):
-                                pilot = data.get('pilot')
-                                rocket = data.get('rocket')
-                                await mc_authpilot(pilot, rocket)
-                        elif command == 'mc_setparameters':
-                            if self.managers.get(websocket):
-                                parameters = data.get('parameters')
-                                rocket = data.get('rocket')
-                                await mc_setparameters(rocket, parameters)
-                        else:
-                            pass
-                    elif message_type == 'bc':
-                        command = data.get('command')
-                        if command == 'bc_registration':
-                            psw = data.get('psw')
-                            await register_rocket(websocket, psw)
-                        elif command == 'bc_authpilot':
-                            if self.rockets.get(websocket):
-                                status = data.get('status')
-                                if status == 'ok':
-                                    pilot = data.get('pilot')
-                                    await bc_authpilot(pilot, websocket)
-                        elif command == 'bc_raceinfo':
-                            if self.rockets.get(websocket):
-                                parameters = data.get('parameters')
-                                info = data.get('info')
-                                await bc_raceinfo(websocket, parameters, info)
-                        else:
-                            pass
-                    elif message_type == 'sc':
-                        command = data.get('command')
-                        if command == 'sc_pilotinfo':
-                            pilot = data.get('pilot')
-                            name = data.get('name')
-                            ak = data.get('ak')
-                            balance = data.get('balance')
-                            await sc_pilotinfo(pilot, name, ak, balance)
-                        elif command == 'sc_marketinfo':
-                            info = data.get('info')
-                            await sc_marketinfo(info)
-                        else:
-                            pass
+                    # print(mes)
+                    command = mes.get('command')
+                    if command == 'mc_registration':
+                        user = mes.get('user')
+                        psw = mes.get('psw')
+                        await register_manager(websocket, user, psw)
+                    elif command == 'mc_setparameters':
+                        parameters = mes.get('parameters')
+                        rocket = mes.get('rocket')
+                        await mc_setparameters(rocket, parameters)
+                    elif command == 'bc_registration':
+                        psw = mes.get('psw')
+                        await bc_registration(websocket, psw)
+                    elif command == 'bc_authpilot':
+                        status = mes.get('status')
+                        pilot = mes.get('pilot')
+                        await bc_authpilot(pilot, status)
+                    elif command == 'bc_raceinfo':
+                        parameters = mes.get('parameters')
+                        info = mes.get('info')
+                        await bc_raceinfo(websocket, parameters, info)
+                    elif command == 'sc_pilotsinfo':
+                        pilots = mes.get('pilots')
+                        await sc_pilotsinfo(pilots)
+                    elif command == 'sc_marketinfo':
+                        info = mes.get('info')
+                        await sc_marketinfo(info)
                     else:
                         pass
             finally:
+                print('unregister')
                 await unregister(websocket)
 
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
-        start_server = websockets.serve(mainroutine, self.pc.le_serveraddress.text(), int(self.pc.le_serverport.text()))
+        start_server = websockets.serve(mainroutine, self.pc.serveraddress, int(self.pc.serverport))
         loop.run_until_complete(start_server)
         loop.run_forever()
 

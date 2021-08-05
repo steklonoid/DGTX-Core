@@ -15,10 +15,11 @@ class WSSClient(Thread):
     def run(self) -> None:
         def on_open(wsapp):
             self.flConnect = True
-            data = {'message_type':'on_open', 'ch':'on_open'}
+            data = {'command':'on_open', 'ch':'on_open'}
             self.q.put(data)
 
         def on_close(wsapp, close_status_code, close_msg):
+            print(self.address, 'close')
             self.flConnect = False
 
         def on_message(wssapp, message):
