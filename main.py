@@ -27,7 +27,7 @@ class MainWindow(QMainWindow, UiMainWindow):
     serveraddress = settings.value('serveraddress')
     serverport = settings.value('serverport')
 
-    version = '1.2.1'
+    version = '1.3.1'
     lock = Lock()
 
     hashpsw = {}
@@ -143,7 +143,7 @@ class MainWindow(QMainWindow, UiMainWindow):
             # -----------------------------------------------------------------------
             self.timetof = TimeToF(self.market_analizator, 1)
             self.timetof.daemon = True
-            # self.timetof.start()
+            self.timetof.start()
 
         else:
             self.pb_enter.setText('вход не выполнен')
