@@ -41,6 +41,7 @@ class WSSClient(Thread):
     def send(self, data):
         str = json.dumps(data)
         self.wsapp.send(str)
+        time.sleep(0.1)
 
 
 class FromQToF(Thread):
