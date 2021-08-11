@@ -44,8 +44,8 @@ class WSSServer(Thread):
         async def unregister_connection(websocket):
             connection = self.connections.get(websocket)
             if connection['type'] == 'manager':
-                await managers_change()
                 self.managers.pop(websocket, None)
+                await managers_change()
             elif connection['type'] == 'rocket':
                 await rocket_delete(websocket)
             self.connections.pop(websocket, None)

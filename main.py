@@ -27,7 +27,7 @@ class MainWindow(QMainWindow, UiMainWindow):
     serveraddress = settings.value('serveraddress')
     serverport = settings.value('serverport')
 
-    version = '1.3.1'
+    version = '1.3.2'
     lock = Lock()
 
     hashpsw = {}
